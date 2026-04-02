@@ -1401,6 +1401,147 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
+// Temporary seed endpoint (remove after first use)
+app.post('/api/seed', async (req, res) => {
+  try {
+    const db = getDb();
+    const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+    if (userCount > 0) return res.json({ message: 'Already seeded', userCount });
+
+    const hash = (pw) => bcrypt.hashSync(pw, 12);
+
+    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone) VALUES (?,?,?,?,?,?)`)
+      .run('ohjaaja', hash('ohjaaja123'), 'instructor', 'Matti Meikäläinen', 'matti@lentokerho.net', '040-1234567');
+    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone) VALUES (?,?,?,?,?,?)`)
+      .run('ohjaaja2', hash('ohjaaja123'), 'instructor', 'Liisa Lennonopettaja', 'liisa@lentokerho.net', '050-7654321');
+
+    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started) VALUES (?,?,?,?,?,?,?,?)`)
+      .run('oppilas1', hash('oppilas123'), 'student', 'Pekka Pilotti', 'pekka@example.com', '044-1111111', 'ongoing', '2026-01-15');
+    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started) VALUES (?,?,?,?,?,?,?,?)`)
+      .run('oppilas2', hash('oppilas123'), 'student', 'Anna Aloittelija', 'anna@example.com', '044-2222222', 'ongoing', '2026-02-01');
+    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started) VALUES (?,?,?,?,?,?,?,?)`)
+      .run('oppilas3', hash('oppilas123'), 'student', 'Kalle Korkealentäjä', 'kalle@example.com', '044-3333333', 'ongoing', '2025-06-01');
+
+    db.prepare(`INSERT INTO sites (name,description) VALUES (?,?)`).run('Hämeenkyrön lentokenttä', 'EFHM, pääkenttä');
+    db.prepare(`INSERT INTO sites (name,description) VALUES (?,?)`).run('Viljakkala', 'Harjoittelurinne');
+    db.prepare(`INSERT INTO sites (name,description) VALUES (?,?)`).run('Särkänniemi tandem', 'Tandem-lentopaikka');
+
+    // Seed theory sections and topics
+    const theorySections = [
+      { level:'pp1', key:'pp1_aero', title:'Aerodynamiikka', topics:[
+        {key:'pp1_aero_1',title:'Liitimen rakenne ja toiminta',dur:45,comment:'Koulutusopas luku 2.1'},
+        {key:'pp1_aero_2',title:'Nostovoima ja vastus',dur:45,comment:'Koulutusopas luku 2.2'},
+        {key:'pp1_aero_3',title:'Lentonopeudet ja suoritusarvot',dur:30,comment:'Koulutusopas luku 2.3'},
+        {key:'pp1_aero_4',title:'Sakkaus ja sen välttäminen',dur:45,comment:'Koulutusopas luku 2.4'},
+        {key:'pp1_aero_5',title:'Kääntyminen ja painonsiirto',dur:30,comment:'Koulutusopas luku 2.5'}
+      ]},
+      { level:'pp1', key:'pp1_meteo', title:'Mikrometeorologia', topics:[
+        {key:'pp1_meteo_1',title:'Tuulen perusteet',dur:45,comment:'Koulutusopas luku 3.1'},
+        {key:'pp1_meteo_2',title:'Terminen aktiivisuus – perusteet',dur:45,comment:'Koulutusopas luku 3.2'},
+        {key:'pp1_meteo_3',title:'Turbulenssi ja tuulengradientti',dur:30,comment:'Koulutusopas luku 3.3'},
+        {key:'pp1_meteo_4',title:'Sääennusteiden lukeminen',dur:30,comment:'Koulutusopas luku 3.4'},
+        {key:'pp1_meteo_5',title:'Paikallissääilmiöt',dur:30,comment:'Koulutusopas luku 3.5'}
+      ]},
+      { level:'pp1', key:'pp1_equip', title:'Välineet', topics:[
+        {key:'pp1_equip_1',title:'Liitimen osat ja materiaalit',dur:45,comment:'Koulutusopas luku 4.1'},
+        {key:'pp1_equip_2',title:'Valjaat ja varavarjo',dur:45,comment:'Koulutusopas luku 4.2'},
+        {key:'pp1_equip_3',title:'Kypärä ja suojavarusteet',dur:30,comment:'Koulutusopas luku 4.3'},
+        {key:'pp1_equip_4',title:'Välineiden tarkastus ja huolto',dur:45,comment:'Koulutusopas luku 4.4'}
+      ]},
+      { level:'pp1', key:'pp1_rules', title:'Säännöt ja ilmatila', topics:[
+        {key:'pp1_rules_1',title:'Ilmailulaki ja -määräykset',dur:45,comment:'Koulutusopas luku 5.1'},
+        {key:'pp1_rules_2',title:'Ilmatilarakenne',dur:45,comment:'Koulutusopas luku 5.2'},
+        {key:'pp1_rules_3',title:'NOTAM ja ilmailutiedotteet',dur:30,comment:'Koulutusopas luku 5.3'},
+        {key:'pp1_rules_4',title:'Väistämissäännöt',dur:30,comment:'Koulutusopas luku 5.4'},
+        {key:'pp1_rules_5',title:'SIL:n ohjeet ja koulutusvaatimukset',dur:45,comment:'Koulutusopas luku 5.5'}
+      ]},
+      { level:'pp1', key:'pp1_tech', title:'Lentotekniikka PP1', topics:[
+        {key:'pp1_tech_1',title:'Maassa tapahtuva harjoittelu',dur:45,comment:'Koulutusopas luku 6.1'},
+        {key:'pp1_tech_2',title:'Nousu ja laskeutuminen',dur:60,comment:'Koulutusopas luku 6.2'},
+        {key:'pp1_tech_3',title:'Suuntaohjaus ja nopeudensäätö',dur:45,comment:'Koulutusopas luku 6.3'},
+        {key:'pp1_tech_4',title:'Laskeutumiskuviot',dur:45,comment:'Koulutusopas luku 6.4'},
+        {key:'pp1_tech_5',title:'Top-landing harjoittelu',dur:30,comment:'Koulutusopas luku 6.5'}
+      ]},
+      { level:'pp1', key:'pp1_safety', title:'Turvallisuus PP1', topics:[
+        {key:'pp1_safety_1',title:'Riskienhallinta ja päätöksenteko',dur:45,comment:'Koulutusopas luku 7.1'},
+        {key:'pp1_safety_2',title:'Hätätilanteet – liitimen hallinta',dur:60,comment:'Koulutusopas luku 7.2'},
+        {key:'pp1_safety_3',title:'Varavarjon käyttö',dur:45,comment:'Koulutusopas luku 7.3'},
+        {key:'pp1_safety_4',title:'Ensiapu lentopaikalla',dur:45,comment:'Koulutusopas luku 7.4'},
+        {key:'pp1_safety_5',title:'Onnettomuusraportointi',dur:30,comment:'Koulutusopas luku 7.5'}
+      ]},
+      { level:'pp2', key:'pp2_aero_adv', title:'Aerodynamiikka (syventävä)', topics:[
+        {key:'pp2_aero_1',title:'Profiilipolaaridiagrammit',dur:45,comment:'Koulutusopas luku 8.1'},
+        {key:'pp2_aero_2',title:'Liitosuhde ja sink rate',dur:45,comment:'Koulutusopas luku 8.2'},
+        {key:'pp2_aero_3',title:'Wingover ja SAT – aerodynamiikka',dur:60,comment:'Koulutusopas luku 8.3'},
+        {key:'pp2_aero_4',title:'Speed system ja trim',dur:30,comment:'Koulutusopas luku 8.4'},
+        {key:'pp2_aero_5',title:'EN-luokitus ja turvallisuustestit',dur:30,comment:'Koulutusopas luku 8.5'},
+        {key:'pp2_aero_6',title:'Siipiprofiilien vertailu',dur:45,comment:'Koulutusopas luku 8.6'}
+      ]},
+      { level:'pp2', key:'pp2_meteo_adv', title:'Meteorologia (syventävä)', topics:[
+        {key:'pp2_meteo_1',title:'Synoptiikka ja sääkartat',dur:60,comment:'Koulutusopas luku 9.1'},
+        {key:'pp2_meteo_2',title:'Termiikka – kehittynyt teoria',dur:60,comment:'Koulutusopas luku 9.2'},
+        {key:'pp2_meteo_3',title:'Inversiot ja stabiilisuus',dur:45,comment:'Koulutusopas luku 9.3'},
+        {key:'pp2_meteo_4',title:'Vuoristoaallot ja roottori',dur:45,comment:'Koulutusopas luku 9.4'},
+        {key:'pp2_meteo_5',title:'Ukkosrintamat ja vaaralliset säätilat',dur:45,comment:'Koulutusopas luku 9.5'},
+        {key:'pp2_meteo_6',title:'Lentosään arviointi ja Go/No-Go',dur:30,comment:'Koulutusopas luku 9.6'}
+      ]},
+      { level:'pp2', key:'pp2_nav', title:'Navigointi', topics:[
+        {key:'pp2_nav_1',title:'Kartat ja koordinaatistot',dur:45,comment:'Koulutusopas luku 10.1'},
+        {key:'pp2_nav_2',title:'GPS-navigointi ilmassa',dur:45,comment:'Koulutusopas luku 10.2'},
+        {key:'pp2_nav_3',title:'Reittisuunnittelu – XC',dur:60,comment:'Koulutusopas luku 10.3'},
+        {key:'pp2_nav_4',title:'Ilmatilarajat ja karttapalvelut',dur:30,comment:'Koulutusopas luku 10.4'},
+        {key:'pp2_nav_5',title:'Vario ja flight computer',dur:45,comment:'Koulutusopas luku 10.5'}
+      ]},
+      { level:'pp2', key:'pp2_tech_adv', title:'Lentotekniikka PP2', topics:[
+        {key:'pp2_tech_1',title:'Termiikkiin keskittyminen',dur:60,comment:'Koulutusopas luku 11.1'},
+        {key:'pp2_tech_2',title:'Dynaamiset käännökset',dur:45,comment:'Koulutusopas luku 11.2'},
+        {key:'pp2_tech_3',title:'Big ears ja B-stall',dur:45,comment:'Koulutusopas luku 11.3'},
+        {key:'pp2_tech_4',title:'Spiral dive ja exit',dur:60,comment:'Koulutusopas luku 11.4'},
+        {key:'pp2_tech_5',title:'Laskeutuminen ahtaisiin paikkoihin',dur:45,comment:'Koulutusopas luku 11.5'},
+        {key:'pp2_tech_6',title:'Tuulilaskennat ja finaalivalinta',dur:45,comment:'Koulutusopas luku 11.6'}
+      ]},
+      { level:'pp2', key:'pp2_xc', title:'Matkalento (XC)', topics:[
+        {key:'pp2_xc_1',title:'XC-lennon suunnittelu',dur:60,comment:'Koulutusopas luku 12.1'},
+        {key:'pp2_xc_2',title:'Termiikkistrategia',dur:60,comment:'Koulutusopas luku 12.2'},
+        {key:'pp2_xc_3',title:'Siirtymälennot ja liito-optimointi',dur:45,comment:'Koulutusopas luku 12.3'},
+        {key:'pp2_xc_4',title:'XC-kilpailut ja FAI-säännöt',dur:45,comment:'Koulutusopas luku 12.4'},
+        {key:'pp2_xc_5',title:'Lentopäiväkirja ja dokumentointi',dur:30,comment:'Koulutusopas luku 12.5'}
+      ]},
+      { level:'pp2', key:'pp2_safety_adv', title:'Turvallisuus PP2', topics:[
+        {key:'pp2_safety_1',title:'SIV-kurssin teoria',dur:60,comment:'Koulutusopas luku 13.1'},
+        {key:'pp2_safety_2',title:'Kasaantuminen ja cravat',dur:45,comment:'Koulutusopas luku 13.2'},
+        {key:'pp2_safety_3',title:'Autorotaatio ja full stall',dur:45,comment:'Koulutusopas luku 13.3'},
+        {key:'pp2_safety_4',title:'Läheltä piti -raportointi',dur:30,comment:'Koulutusopas luku 13.4'},
+        {key:'pp2_safety_5',title:'Henkinen valmentautuminen',dur:45,comment:'Koulutusopas luku 13.5'}
+      ]},
+      { level:'pp2', key:'pp2_human', title:'Inhimilliset tekijät', topics:[
+        {key:'pp2_human_1',title:'Ihmisen suorituskyky ja rajoitukset',dur:45,comment:'Koulutusopas luku 14.1'},
+        {key:'pp2_human_2',title:'Päätöksenteko lennolla (ADM)',dur:45,comment:'Koulutusopas luku 14.2'},
+        {key:'pp2_human_3',title:'Stressinhallinta',dur:30,comment:'Koulutusopas luku 14.3'},
+        {key:'pp2_human_4',title:'Fyysinen kunto ja lentäminen',dur:30,comment:'Koulutusopas luku 14.4'},
+        {key:'pp2_human_5',title:'Hypoksia ja kylmyys',dur:45,comment:'Koulutusopas luku 14.5'},
+        {key:'pp2_human_6',title:'Ryhmädynamiikka lentopaikalla',dur:30,comment:'Koulutusopas luku 14.6'}
+      ]}
+    ];
+
+    let sortOrder = 0;
+    for (const sec of theorySections) {
+      const secResult = db.prepare('INSERT INTO theory_sections (level,key,title,sort_order) VALUES (?,?,?,?)')
+        .run(sec.level, sec.key, sec.title, sortOrder++);
+      const sectionId = secResult.lastInsertRowid;
+      let topicSort = 0;
+      for (const t of sec.topics) {
+        db.prepare('INSERT INTO theory_topics_def (section_id,key,title,duration_minutes,comment,sort_order) VALUES (?,?,?,?,?,?)')
+          .run(sectionId, t.key, t.title, t.dur, t.comment, topicSort++);
+      }
+    }
+
+    res.json({ message: 'Seed complete', users: 5, sites: 3, theorySections: theorySections.length });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Initialize database then start server
 initDb().then(() => {
   app.listen(PORT, () => {
