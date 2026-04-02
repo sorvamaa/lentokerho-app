@@ -19,6 +19,9 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || './data/uploads';
 // Ensure upload directory exists
 fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+// Trust proxy (Railway runs behind a reverse proxy)
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(express.json());
 app.use(express.static('public'));
