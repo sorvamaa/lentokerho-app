@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lentokerho.net — Koulutussovellus</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header bar -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <span class="brand-text">Lentokerho.net — Koulutussovellus</span>
+                </div>
+                <div id="header-right" style="display: flex; align-items: center; gap: 12px;" hidden>
+                    <span id="user-display" style="color: #ccc; font-size: 0.9em;"></span>
+                    <button id="logout-btn" class="logout-btn">Kirjaudu ulos</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Alert container for messages -->
+        <div id="alert-container" style="position: fixed; top: 60px; right: 20px; z-index: 9999; max-width: 400px;"></div>
+
+        <!-- Loading view -->
+        <div id="loading-view" class="view" style="display: none;">
+            <div style="text-align: center; padding: 60px;">
+                <p>Ladataan...</p>
+            </div>
+        </div>
+
+        <!-- Login view -->
+        <div id="login-view" class="view" style="display: none;">
+            <div class="login-container">
+                <div class="login-box">
+                    <h1>Kirjaudu sisään</h1>
+                    <form id="login-form" class="login-form">
+                        <div class="form-group">
+                            <label for="login-username">Käyttäjänimi</label>
+                            <input
+                                type="text"
+                                id="login-username"
+                                name="username"
+                                required
+                                autofocus
+                                autocomplete="username"
+                            >
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">Salasana</label>
+                            <input
+                                type="password"
+                                id="login-password"
+                                name="password"
+                                required
+                                autocomplete="current-password"
+                            >
+                        </div>
+                        <button type="submit" class="btn-primary">Kirjaudu</button>
+                    </form>
+                    <div class="login-footer">
+                        <a href="#" id="forgot-password-link">Unohtuiko salasana?</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Forgot password view -->
+        <div id="forgot-password-view" class="view" style="display: none;">
+            <div class="login-container">
+                <div class="login-box">
+                    <h1>Salasanan vaihto</h1>
+                    <p>Syötä sähköpostiosoitteesi, niin lähetämme sinulle linkin salasanan vaihtamiseen.</p>
+                    <form id="forgot-password-form" class="form">
+                        <div class="form-group">
+                            <label for="reset-email">Sähköpostiosoite</label>
+                            <input
+                                type="email"
+                                id="reset-email"
+                                name="email"
+                                required
+                                autocomplete="email"
+                            >
+                        </div>
+                        <button type="submit" class="btn-primary">Lähetä palautusviesti</button>
+                    </form>
+                    <div class="login-footer">
+                        <a href="#" id="back-to-login-link">Takaisin kirjautumiseen</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reset password view -->
+        <div id="reset-password-view" class="view" style="display: none;">
+            <div class="login-container">
+                <div class="login-box">
+                    <h1>Aseta uusi salasana</h1>
+                    <form id="reset-password-form" class="form">
+                        <div class="form-group">
+                            <label for="new-password">Uusi salasana</label>
+                            <input
+                                type="password"
+                                id="new-password"
+                                name="newPassword"
+                                required
+                                autocomplete="new-password"
+                            >
+                        </div>
+                        <div class="form-group">
+                            <label for="confirm-password">Vahvista salasana</label>
+                            <input
+                                type="password"
+                                id="confirm-password"
+                                name="confirmPassword"
+                                required
+                                autocomplete="new-password"
+                            >
+                        </div>
+                        <button type="submit" class="btn-primary">Aseta salasana</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- App view (shown after login) -->
+        <div id="app-view" class="view" style="display: none;">
+            <!-- Navigation sidebar -->
+            <aside id="sidebar" class="sidebar">
+                <nav class="sidebar-nav">
+                    <ul>
+                        <li><a href="#dashboard" class="nav-link" data-nav-link="dashboard">Dashboard</a></li>
+                        <li><a href="#students" class="nav-link" data-nav-link="students">Oppilaat</a></li>
+                        <li><a href="#instructors" class="nav-link" data-nav-link="instructors">Ohjaajat</a></li>
+                        <li><a href="#lessons" class="nav-link" data-nav-link="lessons">Oppitunnit</a></li>
+                        <li><a href="#sites" class="nav-link" data-nav-link="sites">Lentopaikat</a></li>
+                        <li><a href="#theory-management" class="nav-link" data-nav-link="theory-management">Teoria</a></li>
+                        <li><a href="#audit-log" class="nav-link" data-nav-link="audit-log">Loki</a></li>
+                    </ul>
+                </nav>
+            </aside>
+
+            <!-- Main content area -->
+            <main id="main-content" class="main-content"></main>
+        </div>
+
+        <!-- Modal overlay -->
+        <div id="modal-overlay" class="modal-overlay" style="display: none;"></div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
