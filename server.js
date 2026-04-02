@@ -257,6 +257,11 @@ const getStudentStats = (studentId) => {
     'SELECT COUNT(*) as count FROM flights WHERE student_id = ? AND is_approval_flight = 1'
   ).get(studentId);
 
+  // PP2 exam status
+  const pp2Exam = db.prepare(
+    'SELECT pp2_exam_passed FROM users WHERE id = ?'
+  ).get(studentId);
+
   // Theory counts
   const theoryPp1 = db.prepare(
     "SELECT COUNT(*) as count FROM theory_completions WHERE student_id = ? AND topic_key LIKE 'pp1_%'"
@@ -273,6 +278,7 @@ const getStudentStats = (studentId) => {
     total_flights: totalFlights.count,
     last_flight_date: lastFlight ? lastFlight.date : null,
     has_approval: hasApproval.count > 0,
+    pp2_exam_passed: pp2Exam ? pp2Exam.pp2_exam_passed : 0,
     theory_pp1: theoryPp1.count,
     theory_pp2: theoryPp2.count
   };
@@ -283,7 +289,7 @@ app.get('/api/students', requireAuth, requireInstructor, (req, res) => {
   const { status = 'all' } = req.query;
   const db = getDb();
 
-  let query = 'SELECT id, username, name, email, phone, status, course_started, student_notes, created_at FROM users WHERE role = ?';
+  let query = 'SELECT id, username, name, email, phone, status, pp2_exam_passed, course_started, student_notes, created_at FROM users WHERE role = ?';
   const params = ['student'];
 
   if (status !== 'all') {
@@ -325,8 +331,8 @@ app.post('/api/students', requireAuth, requireInstructor, (req, res) => {
   const hashedPassword = bcrypt.hashSync(password, 10);
 
   const userResult = db.prepare(
-    'INSERT INTO users (username, email, name, password_hash, phone, role, status, course_started, student_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(username, email, name, hashedPassword, phone || null, 'student', status || 'ongoing', course_started || new Date().toISOString().split('T')[0], '');
+    'INSERT INTO users (username, email, name, password_hash, phone, role, status, pp2_exam_passed, course_started, student_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(username, email, name, hashedPassword, phone || null, 'student', status || 'ongoing', 0, course_started || new Date().toISOString().split('T')[0], '');
 
   logAction(req.session.userId, 'CREATE', 'student', userResult.lastInsertRowid, { name, email });
 
@@ -354,13 +360,21 @@ app.get('/api/students/:id', requireAuth, (req, res) => {
 // PUT /api/students/:id
 app.put('/api/students/:id', requireAuth, requireInstructor, (req, res) => {
   const { id } = req.params;
-  const { name, email, phone, status, course_started, student_notes } = req.body;
+  const { name, email, phone, status, pp2_exam_passed, course_started, student_notes } = req.body;
 
   const db = getDb();
   const student = db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(id, 'student');
 
   if (!student) {
     return res.status(404).json({ error: 'Student not found' });
+  }
+
+  // Validate: cannot set status to 'completed' without pp2_exam_passed
+  if (status === 'completed') {
+    const examPassed = pp2_exam_passed !== undefined ? pp2_exam_passed : student.pp2_exam_passed;
+    if (!examPassed) {
+      return res.status(400).json({ error: 'PP2-koe täytyy olla suoritettu ennen valmistumista' });
+    }
   }
 
   const updates = [];
@@ -370,6 +384,7 @@ app.put('/api/students/:id', requireAuth, requireInstructor, (req, res) => {
   if (email !== undefined) { updates.push('email = ?'); values.push(email); }
   if (phone !== undefined) { updates.push('phone = ?'); values.push(phone); }
   if (status !== undefined) { updates.push('status = ?'); values.push(status); }
+  if (pp2_exam_passed !== undefined) { updates.push('pp2_exam_passed = ?'); values.push(pp2_exam_passed ? 1 : 0); }
   if (course_started !== undefined) { updates.push('course_started = ?'); values.push(course_started); }
   if (student_notes !== undefined) { updates.push('student_notes = ?'); values.push(student_notes); }
 
@@ -1284,7 +1299,7 @@ app.get('/api/dashboard', requireAuth, requireInstructor, (req, res) => {
   ).get('student', 'ongoing');
 
   const graduatedStudents = db.prepare(
-    "SELECT COUNT(*) as count FROM users WHERE role = 'student' AND status IN ('approved_pp2', 'graduated')"
+    "SELECT COUNT(*) as count FROM users WHERE role = 'student' AND status = 'completed'"
   ).get();
 
   const totalFlights = db.prepare(

@@ -160,6 +160,7 @@ function migrate(w) {
       email          TEXT    NOT NULL UNIQUE,
       phone          TEXT    DEFAULT NULL,
       status         TEXT    DEFAULT NULL,
+      pp2_exam_passed INTEGER DEFAULT 0,
       course_started TEXT    DEFAULT NULL,
       student_notes  TEXT    DEFAULT NULL,
       created_at     TEXT    DEFAULT CURRENT_TIMESTAMP
@@ -277,6 +278,14 @@ function migrate(w) {
   try { w.exec('CREATE INDEX idx_resets_user ON password_resets(user_id, used)'); } catch(e) {}
   try { w.exec('CREATE INDEX idx_theory_sections_level ON theory_sections(level, sort_order)'); } catch(e) {}
   try { w.exec('CREATE INDEX idx_theory_topics_def_section ON theory_topics_def(section_id, sort_order)'); } catch(e) {}
+
+  // Migrations for existing databases
+  try { w.exec('ALTER TABLE users ADD COLUMN pp2_exam_passed INTEGER DEFAULT 0'); } catch(e) {}
+  // Migrate old statuses to simplified model
+  try {
+    w.exec("UPDATE users SET status = 'ongoing' WHERE status IN ('approved_pp1', 'approved_pp2')");
+    w.exec("UPDATE users SET status = 'completed' WHERE status = 'graduated'");
+  } catch(e) {}
 }
 
 // Graceful shutdown

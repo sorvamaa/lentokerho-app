@@ -218,10 +218,8 @@ function createProgressBar(current, max, label) {
 
 function getStatusBadge(status) {
   const statusMap = {
-    'ongoing': { bg: '#2E6DA4', text: 'Käynnissä' },
-    'approved_pp1': { bg: '#28a745', text: 'PP1 hyväksytty' },
-    'approved_pp2': { bg: '#28a745', text: 'PP2 hyväksytty' },
-    'graduated': { bg: '#28a745', text: 'Valmistunut' },
+    'ongoing': { bg: '#2E6DA4', text: 'Kesken' },
+    'completed': { bg: '#28a745', text: 'Valmis' },
     'inactive': { bg: '#6c757d', text: 'Inaktiivinen' }
   };
   const info = statusMap[status] || { bg: '#6c757d', text: status || 'Tuntematon' };
@@ -488,9 +486,9 @@ async function renderStudentList() {
       </div>
 
       <div style="margin-bottom: 20px; display: flex; gap: 8px; flex-wrap: wrap;">
-        <button class="btn ${studentListFilter === 'ongoing' ? 'btn-primary' : 'btn-secondary'}" onclick="setStudentFilter('ongoing')">Käynnissä</button>
+        <button class="btn ${studentListFilter === 'ongoing' ? 'btn-primary' : 'btn-secondary'}" onclick="setStudentFilter('ongoing')">Kesken</button>
         <button class="btn ${studentListFilter === '' ? 'btn-primary' : 'btn-secondary'}" onclick="setStudentFilter('')">Kaikki</button>
-        <button class="btn ${studentListFilter === 'approved_pp2' ? 'btn-primary' : 'btn-secondary'}" onclick="setStudentFilter('approved_pp2')">Hyväksytty PP2</button>
+        <button class="btn ${studentListFilter === 'completed' ? 'btn-primary' : 'btn-secondary'}" onclick="setStudentFilter('completed')">Valmis</button>
       </div>
 
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px;">
@@ -556,9 +554,7 @@ function showAddStudentModal() {
       <div class="form-group" style="margin-bottom: 12px;">
         <label>Status</label>
         <select id="add-student-status" style="width: 100%; padding: 8px; box-sizing: border-box;">
-          <option value="ongoing">Käynnissä</option>
-          <option value="approved_pp1">PP1 hyväksytty</option>
-          <option value="inactive">Inaktiivinen</option>
+          <option value="ongoing">Kesken</option>
         </select>
       </div>
       <div style="margin-top: 20px; text-align: right;">
@@ -700,7 +696,10 @@ async function loadFlightsTab(studentId) {
       <div>${createProgressBar(stats.high_flights || 0, 40, 'Korkeita lentoja')}</div>
       <div>${createProgressBar(stats.high_days || 0, 7, 'Korkeita päiviä')}</div>
       <div style="display: flex; align-items: center;">
-        ${stats.has_approval ? '<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">Hyväksyntälento suoritettu</span>' : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">Hyväksyntälento vaaditaan</span>'}
+        ${stats.has_approval ? '<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">Tarkistuslento suoritettu</span>' : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">Tarkistuslento vaaditaan</span>'}
+      </div>
+      <div style="display: flex; align-items: center;">
+        ${stats.pp2_exam_passed ? '<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">PP2-koe suoritettu</span>' : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">PP2-koe suorittamatta</span>'}
       </div>
     </div>
 
@@ -729,7 +728,7 @@ async function loadFlightsTab(studentId) {
     flights.forEach(flight => {
       const typeLabel = flight.flight_type === 'low' ? 'Matala' : 'Korkea';
       const typeBg = flight.flight_type === 'low' ? '#6c757d' : '#2E6DA4';
-      const approvalTag = flight.is_approval_flight ? ' <span style="background: #28a745; color: #fff; padding: 1px 6px; border-radius: 3px; font-size: 0.8em;">Hyväksyntä</span>' : '';
+      const approvalTag = flight.is_approval_flight ? ' <span style="background: #28a745; color: #fff; padding: 1px 6px; border-radius: 3px; font-size: 0.8em;">Tarkistus</span>' : '';
       html += `
         <tr style="border-bottom: 1px solid #dee2e6;">
           <td style="padding: 10px;">${formatDate(flight.date)}</td>
@@ -896,8 +895,8 @@ function showFlightModal(studentId) {
       <div class="form-group" style="margin-bottom: 12px;">
         <label>Lentotyyppi *</label>
         <div style="display: flex; gap: 20px; margin-top: 4px;">
-          <label><input type="radio" name="flight_type" value="low" checked> Matala</label>
-          <label><input type="radio" name="flight_type" value="high"> Korkea</label>
+          <label><input type="radio" name="flight_type" value="low"> Matala</label>
+          <label><input type="radio" name="flight_type" value="high" checked> Korkea</label>
         </div>
       </div>
       <div class="form-group" style="margin-bottom: 12px;">
@@ -917,7 +916,7 @@ function showFlightModal(studentId) {
         <textarea id="flight-notes" placeholder="Vapaat muistiinpanot" style="width: 100%; padding: 8px; box-sizing: border-box; min-height: 60px;"></textarea>
       </div>
       <div class="form-group" style="margin-bottom: 12px;">
-        <label><input type="checkbox" id="flight-approval"> Hyväksyntälento</label>
+        <label><input type="checkbox" id="flight-approval"> Tarkistuslento</label>
       </div>
       <div style="margin-top: 20px; text-align: right;">
         <button type="button" class="btn btn-secondary" onclick="hideModal()">Peruuta</button>
@@ -1066,12 +1065,12 @@ function showEditStudentModal(studentId) {
         <div class="form-group" style="margin-bottom: 12px;">
           <label>Status</label>
           <select id="edit-student-status" style="width: 100%; padding: 8px; box-sizing: border-box;">
-            <option value="ongoing" ${student.status === 'ongoing' ? 'selected' : ''}>Käynnissä</option>
-            <option value="approved_pp1" ${student.status === 'approved_pp1' ? 'selected' : ''}>PP1 hyväksytty</option>
-            <option value="approved_pp2" ${student.status === 'approved_pp2' ? 'selected' : ''}>PP2 hyväksytty</option>
-            <option value="graduated" ${student.status === 'graduated' ? 'selected' : ''}>Valmistunut</option>
-            <option value="inactive" ${student.status === 'inactive' ? 'selected' : ''}>Inaktiivinen</option>
+            <option value="ongoing" ${student.status === 'ongoing' ? 'selected' : ''}>Kesken</option>
+            <option value="completed" ${student.status === 'completed' ? 'selected' : ''}>Valmis</option>
           </select>
+        </div>
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label><input type="checkbox" id="edit-student-pp2-exam" ${student.pp2_exam_passed ? 'checked' : ''}> PP2-koe suoritettu</label>
         </div>
         <div class="form-group" style="margin-bottom: 12px;">
           <label>Kurssin aloituspäivä</label>
@@ -1094,6 +1093,7 @@ async function handleEditStudent(event, studentId) {
     email: $('edit-student-email').value.trim(),
     phone: $('edit-student-phone').value.trim(),
     status: $('edit-student-status').value,
+    pp2_exam_passed: $('edit-student-pp2-exam').checked,
     course_started: $('edit-student-course-started').value
   });
   if (result) {

@@ -70,7 +70,7 @@ for (let i = 0; i < 7; i++) {
     .run(kalle, `2025-${month}-${10+i}`, 5 + i%3, 'high', siteMap['Hämeenkyrön lentokenttä'], 'Hyvä', 'Korkealento', null, instructor.id);
 }
 db.prepare(`INSERT INTO flights (student_id, date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight, added_by) VALUES (?,?,?,?,?,?,?,?,?,?)`)
-  .run(kalle, '2026-02-20', 1, 'high', siteMap['Hämeenkyrön lentokenttä'], 'Erinomainen', 'Koelento', 'Hyväksytty koelento', 1, instructor.id);
+  .run(kalle, '2026-02-20', 1, 'high', siteMap['Hämeenkyrön lentokenttä'], 'Erinomainen', 'Tarkistuslento', 'Hyväksytty tarkistuslento', 1, instructor.id);
 
 // ===== Populate theory_sections and theory_topics_def =====
 const theorySections = [
