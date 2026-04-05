@@ -1,7 +1,7 @@
 {
-  "name": "lentokerho-app",
+  "name": "pilottipolku",
   "version": "1.0.0",
-  "description": "Hämeenkyrön lentokerho — Varjoliidon koulutussovellus",
+  "description": "PilottiPolku — Varjoliidon koulutussovellus",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

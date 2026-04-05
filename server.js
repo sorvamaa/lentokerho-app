@@ -71,7 +71,7 @@ const requireAuth = (req, res, next) => {
   next();
 };
 
-// Middleware: Instructor role check
+// Middleware: Instructor role check (allows admin too)
 const requireInstructor = (req, res, next) => {
   if (!req.session.userId) {
     return res.status(401).json({ error: 'Unauthorized' });
@@ -80,10 +80,32 @@ const requireInstructor = (req, res, next) => {
   const db = getDb();
   const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
 
-  if (!user || user.role !== 'instructor') {
+  if (!user || (user.role !== 'instructor' && user.role !== 'admin')) {
     return res.status(403).json({ error: 'Instructor access required' });
   }
   next();
+};
+
+// Middleware: Admin role check
+const requireAdmin = (req, res, next) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const db = getDb();
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+};
+
+// Helper: Get user's club_id
+const getUserClubId = (req) => {
+  const db = getDb();
+  const user = db.prepare('SELECT club_id, role FROM users WHERE id = ?').get(req.session.userId);
+  return user ? user.club_id : null;
 };
 
 // Helper: Get user object without password
@@ -286,15 +308,25 @@ const getStudentStats = (studentId) => {
 
 // GET /api/students
 app.get('/api/students', requireAuth, requireInstructor, (req, res) => {
-  const { status = 'all' } = req.query;
+  const { status = 'all', club_id } = req.query;
   const db = getDb();
+  const user = db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
 
-  let query = 'SELECT id, username, name, email, phone, status, pp2_exam_passed, course_started, student_notes, created_at FROM users WHERE role = ?';
+  let query = 'SELECT id, username, name, email, phone, status, pp2_exam_passed, course_started, student_notes, created_at, club_id FROM users WHERE role = ?';
   const params = ['student'];
 
   if (status !== 'all') {
     query += ' AND status = ?';
     params.push(status);
+  }
+
+  // Instructor sees only their club; admin can filter by club_id param
+  if (user.role === 'instructor') {
+    query += ' AND club_id = ?';
+    params.push(user.club_id);
+  } else if (user.role === 'admin' && club_id) {
+    query += ' AND club_id = ?';
+    params.push(club_id);
   }
 
   query += ' ORDER BY name ASC';
@@ -329,10 +361,11 @@ app.post('/api/students', requireAuth, requireInstructor, (req, res) => {
   }
 
   const hashedPassword = bcrypt.hashSync(password, 10);
+  const instructorClubId = getUserClubId(req);
 
   const userResult = db.prepare(
-    'INSERT INTO users (username, email, name, password_hash, phone, role, status, pp2_exam_passed, course_started, student_notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(username, email, name, hashedPassword, phone || null, 'student', status || 'ongoing', 0, course_started || new Date().toISOString().split('T')[0], '');
+    'INSERT INTO users (username, email, name, password_hash, phone, role, status, pp2_exam_passed, course_started, student_notes, club_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(username, email, name, hashedPassword, phone || null, 'student', status || 'ongoing', 0, course_started || new Date().toISOString().split('T')[0], '', instructorClubId);
 
   logAction(req.session.userId, 'CREATE', 'student', userResult.lastInsertRowid, { name, email });
 
@@ -829,8 +862,9 @@ app.delete('/api/theory/topics/:id', requireAuth, requireInstructor, (req, res) 
 // GET /api/lessons
 app.get('/api/lessons', requireAuth, requireInstructor, (req, res) => {
   const db = getDb();
+  const user = db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
 
-  const lessons = db.prepare(`
+  let query = `
     SELECT
       l.*,
       COUNT(DISTINCT ls.student_id) as student_count,
@@ -838,9 +872,19 @@ app.get('/api/lessons', requireAuth, requireInstructor, (req, res) => {
     FROM lessons l
     LEFT JOIN lesson_students ls ON l.id = ls.lesson_id
     LEFT JOIN lesson_topics lt ON l.id = lt.lesson_id
-    GROUP BY l.id
-    ORDER BY l.date DESC
-  `).all();
+    LEFT JOIN users u ON l.instructor_id = u.id
+  `;
+  const params = [];
+
+  // Filter by club for instructors
+  if (user.role === 'instructor') {
+    query += ' WHERE u.club_id = ?';
+    params.push(user.club_id);
+  }
+
+  query += ' GROUP BY l.id ORDER BY l.date DESC';
+
+  const lessons = db.prepare(query).all(...params);
 
   // Add instructor name
   const lessonsWithNames = lessons.map(l => {
@@ -1042,7 +1086,23 @@ app.delete('/api/lessons/:id', requireAuth, requireInstructor, (req, res) => {
 // GET /api/sites
 app.get('/api/sites', requireAuth, (req, res) => {
   const db = getDb();
-  const sites = db.prepare('SELECT * FROM sites ORDER BY name ASC').all();
+  const user = db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+
+  let query = 'SELECT * FROM sites';
+  const params = [];
+
+  // Instructor sees only their club's sites; admin can filter by club_id param
+  if (user.role === 'instructor') {
+    query += ' WHERE club_id = ?';
+    params.push(user.club_id);
+  } else if (user.role === 'admin' && req.query.club_id) {
+    query += ' WHERE club_id = ?';
+    params.push(req.query.club_id);
+  }
+
+  query += ' ORDER BY name ASC';
+
+  const sites = db.prepare(query).all(...params);
   res.json({ sites });
 });
 
@@ -1055,7 +1115,8 @@ app.post('/api/sites', requireAuth, requireInstructor, (req, res) => {
   }
 
   const db = getDb();
-  const result = db.prepare('INSERT INTO sites (name, description) VALUES (?, ?)').run(name, description || null);
+  const userClubId = getUserClubId(req);
+  const result = db.prepare('INSERT INTO sites (name, description, club_id) VALUES (?, ?, ?)').run(name, description || null, userClubId);
 
   logAction(req.session.userId, 'CREATE', 'site', result.lastInsertRowid, { name });
 
@@ -1215,22 +1276,140 @@ app.delete('/api/attachments/:id', requireAuth, requireInstructor, (req, res) =>
 });
 
 // ============================================================================
+// EQUIPMENT ROUTES
+// ============================================================================
+
+// GET /api/students/:id/equipment
+app.get('/api/students/:id/equipment', requireAuth, (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const student = db.prepare('SELECT id FROM users WHERE id = ? AND role = ?').get(id, 'student');
+  if (!student) {
+    return res.status(404).json({ error: 'Student not found' });
+  }
+
+  const equipment = db.prepare('SELECT * FROM equipment WHERE student_id = ?').get(id);
+
+  if (equipment) {
+    res.json(equipment);
+  } else {
+    // Return empty defaults
+    res.json({
+      student_id: id,
+      wing_manufacturer: '',
+      wing_model: '',
+      wing_size: '',
+      wing_year: null,
+      wing_club_owned: 0,
+      harness_manufacturer: '',
+      harness_model: '',
+      harness_club_owned: 0,
+      reserve_manufacturer: '',
+      reserve_model: '',
+      reserve_size: '',
+      reserve_pack_date: null,
+      reserve_club_owned: 0
+    });
+  }
+});
+
+// PUT /api/students/:id/equipment
+app.put('/api/students/:id/equipment', requireAuth, (req, res) => {
+  const { id } = req.params;
+  const {
+    wing_manufacturer, wing_model, wing_size, wing_year, wing_club_owned,
+    harness_manufacturer, harness_model, harness_club_owned,
+    reserve_manufacturer, reserve_model, reserve_size, reserve_pack_date, reserve_club_owned
+  } = req.body;
+
+  const db = getDb();
+
+  const student = db.prepare('SELECT id FROM users WHERE id = ? AND role = ?').get(id, 'student');
+  if (!student) {
+    return res.status(404).json({ error: 'Student not found' });
+  }
+
+  // Check authorization: student can edit own equipment, instructor/admin can edit any
+  const user = db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+  if (user.role === 'student' && req.session.userId !== parseInt(id)) {
+    return res.status(403).json({ error: 'Not authorized to edit this equipment' });
+  }
+
+  const existing = db.prepare('SELECT id FROM equipment WHERE student_id = ?').get(id);
+
+  if (existing) {
+    // Update existing
+    const updates = [];
+    const values = [];
+
+    if (wing_manufacturer !== undefined) { updates.push('wing_manufacturer = ?'); values.push(wing_manufacturer || ''); }
+    if (wing_model !== undefined) { updates.push('wing_model = ?'); values.push(wing_model || ''); }
+    if (wing_size !== undefined) { updates.push('wing_size = ?'); values.push(wing_size || ''); }
+    if (wing_year !== undefined) { updates.push('wing_year = ?'); values.push(wing_year); }
+    if (wing_club_owned !== undefined) { updates.push('wing_club_owned = ?'); values.push(wing_club_owned ? 1 : 0); }
+    if (harness_manufacturer !== undefined) { updates.push('harness_manufacturer = ?'); values.push(harness_manufacturer || ''); }
+    if (harness_model !== undefined) { updates.push('harness_model = ?'); values.push(harness_model || ''); }
+    if (harness_club_owned !== undefined) { updates.push('harness_club_owned = ?'); values.push(harness_club_owned ? 1 : 0); }
+    if (reserve_manufacturer !== undefined) { updates.push('reserve_manufacturer = ?'); values.push(reserve_manufacturer || ''); }
+    if (reserve_model !== undefined) { updates.push('reserve_model = ?'); values.push(reserve_model || ''); }
+    if (reserve_size !== undefined) { updates.push('reserve_size = ?'); values.push(reserve_size || ''); }
+    if (reserve_pack_date !== undefined) { updates.push('reserve_pack_date = ?'); values.push(reserve_pack_date); }
+    if (reserve_club_owned !== undefined) { updates.push('reserve_club_owned = ?'); values.push(reserve_club_owned ? 1 : 0); }
+
+    updates.push('updated_at = ?');
+    values.push(new Date().toISOString());
+    values.push(id);
+
+    const query = `UPDATE equipment SET ${updates.join(', ')} WHERE student_id = ?`;
+    db.prepare(query).run(...values);
+  } else {
+    // Insert new
+    db.prepare(
+      'INSERT INTO equipment (student_id, wing_manufacturer, wing_model, wing_size, wing_year, wing_club_owned, harness_manufacturer, harness_model, harness_club_owned, reserve_manufacturer, reserve_model, reserve_size, reserve_pack_date, reserve_club_owned, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      id,
+      wing_manufacturer || '', wing_model || '', wing_size || '', wing_year, wing_club_owned ? 1 : 0,
+      harness_manufacturer || '', harness_model || '', harness_club_owned ? 1 : 0,
+      reserve_manufacturer || '', reserve_model || '', reserve_size || '', reserve_pack_date, reserve_club_owned ? 1 : 0,
+      new Date().toISOString()
+    );
+  }
+
+  logAction(req.session.userId, 'UPDATE', 'equipment', id, { student_id: id });
+
+  const updated = db.prepare('SELECT * FROM equipment WHERE student_id = ?').get(id);
+  res.json(updated);
+});
+
+// ============================================================================
 // INSTRUCTOR ROUTES
 // ============================================================================
 
 // GET /api/instructors
 app.get('/api/instructors', requireAuth, requireInstructor, (req, res) => {
   const db = getDb();
-  const instructors = db.prepare(
-    'SELECT id, username, email, name, phone FROM users WHERE role = ?'
-  ).all('instructor');
+  const user = db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
 
+  let query = 'SELECT id, username, email, name, phone, club_id FROM users WHERE role = ?';
+  const params = ['instructor'];
+
+  // Instructor sees only their club's instructors; admin can filter by club_id param
+  if (user.role === 'instructor') {
+    query += ' AND club_id = ?';
+    params.push(user.club_id);
+  } else if (user.role === 'admin' && req.query.club_id) {
+    query += ' AND club_id = ?';
+    params.push(req.query.club_id);
+  }
+
+  const instructors = db.prepare(query).all(...params);
   res.json({ instructors });
 });
 
 // POST /api/instructors
-app.post('/api/instructors', requireAuth, requireInstructor, (req, res) => {
-  const { name, email, phone, username, password } = req.body;
+app.post('/api/instructors', requireAuth, requireAdmin, (req, res) => {
+  const { name, email, phone, username, password, club_id } = req.body;
 
   if (!name || !email || !username || !password) {
     return res.status(400).json({ error: 'Name, email, username, and password required' });
@@ -1250,13 +1429,13 @@ app.post('/api/instructors', requireAuth, requireInstructor, (req, res) => {
   const hashedPassword = bcrypt.hashSync(password, 10);
 
   const result = db.prepare(
-    'INSERT INTO users (username, email, name, password_hash, phone, role) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(username, email, name, hashedPassword, phone || null, 'instructor');
+    'INSERT INTO users (username, email, name, password_hash, phone, role, club_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(username, email, name, hashedPassword, phone || null, 'instructor', club_id || null);
 
   logAction(req.session.userId, 'CREATE', 'instructor', result.lastInsertRowid, { name, email });
 
   const instructor = db.prepare(
-    'SELECT id, username, email, name, phone FROM users WHERE id = ?'
+    'SELECT id, username, email, name, phone, club_id FROM users WHERE id = ?'
   ).get(result.lastInsertRowid);
 
   res.status(201).json(instructor);
@@ -1286,35 +1465,179 @@ app.delete('/api/instructors/:id', requireAuth, requireInstructor, (req, res) =>
 });
 
 // ============================================================================
+// CLUBS ROUTES (Admin only)
+// ============================================================================
+
+// GET /api/clubs
+app.get('/api/clubs', requireAuth, requireAdmin, (req, res) => {
+  const db = getDb();
+  const clubs = db.prepare('SELECT * FROM clubs ORDER BY name ASC').all();
+  res.json({ clubs });
+});
+
+// POST /api/clubs
+app.post('/api/clubs', requireAuth, requireAdmin, (req, res) => {
+  const { club_name, club_slug, club_description, instructor_name, instructor_email, instructor_username, instructor_password } = req.body;
+
+  if (!club_name || !club_slug || !instructor_name || !instructor_email || !instructor_username || !instructor_password) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  if (instructor_password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  const db = getDb();
+
+  // Check if club slug exists
+  const existingClub = db.prepare('SELECT id FROM clubs WHERE slug = ?').get(club_slug);
+  if (existingClub) {
+    return res.status(400).json({ error: 'Club slug already exists' });
+  }
+
+  // Check if instructor username or email exists
+  const existingUser = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(instructor_username, instructor_email);
+  if (existingUser) {
+    return res.status(400).json({ error: 'Username or email already exists' });
+  }
+
+  try {
+    // Create club
+    const clubResult = db.prepare('INSERT INTO clubs (name, slug, description) VALUES (?, ?, ?)').run(
+      club_name, club_slug, club_description || ''
+    );
+    const clubId = clubResult.lastInsertRowid;
+
+    // Create first instructor for the club
+    const hashedPassword = bcrypt.hashSync(instructor_password, 10);
+    const instructorResult = db.prepare(
+      'INSERT INTO users (username, email, name, password_hash, role, club_id) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(instructor_username, instructor_email, instructor_name, hashedPassword, 'instructor', clubId);
+
+    logAction(req.session.userId, 'CREATE', 'club', clubId, { name: club_name, instructor_id: instructorResult.lastInsertRowid });
+
+    const club = db.prepare('SELECT * FROM clubs WHERE id = ?').get(clubId);
+    res.status(201).json(club);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/clubs/:id
+app.put('/api/clubs/:id', requireAuth, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const { name, slug, description, is_active } = req.body;
+
+  const db = getDb();
+  const club = db.prepare('SELECT * FROM clubs WHERE id = ?').get(id);
+
+  if (!club) {
+    return res.status(404).json({ error: 'Club not found' });
+  }
+
+  const updates = [];
+  const values = [];
+
+  if (name !== undefined) { updates.push('name = ?'); values.push(name); }
+  if (slug !== undefined) { updates.push('slug = ?'); values.push(slug); }
+  if (description !== undefined) { updates.push('description = ?'); values.push(description); }
+  if (is_active !== undefined) { updates.push('is_active = ?'); values.push(is_active ? 1 : 0); }
+
+  if (updates.length > 0) {
+    values.push(id);
+    const query = `UPDATE clubs SET ${updates.join(', ')} WHERE id = ?`;
+    db.prepare(query).run(...values);
+  }
+
+  logAction(req.session.userId, 'UPDATE', 'club', id, { fields: Object.keys(req.body) });
+
+  const updated = db.prepare('SELECT * FROM clubs WHERE id = ?').get(id);
+  res.json(updated);
+});
+
+// DELETE /api/clubs/:id (soft delete)
+app.delete('/api/clubs/:id', requireAuth, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const club = db.prepare('SELECT * FROM clubs WHERE id = ?').get(id);
+
+  if (!club) {
+    return res.status(404).json({ error: 'Club not found' });
+  }
+
+  db.prepare('UPDATE clubs SET is_active = 0 WHERE id = ?').run(id);
+
+  logAction(req.session.userId, 'DELETE', 'club', id, {});
+
+  res.json({ success: true });
+});
+
+// GET /api/clubs/:id/stats
+app.get('/api/clubs/:id/stats', requireAuth, requireAdmin, (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const club = db.prepare('SELECT * FROM clubs WHERE id = ?').get(id);
+
+  if (!club) {
+    return res.status(404).json({ error: 'Club not found' });
+  }
+
+  const studentCount = db.prepare('SELECT COUNT(*) as count FROM users WHERE club_id = ? AND role = ?').get(id, 'student');
+  const instructorCount = db.prepare('SELECT COUNT(*) as count FROM users WHERE club_id = ? AND role = ?').get(id, 'instructor');
+  const siteCount = db.prepare('SELECT COUNT(*) as count FROM sites WHERE club_id = ?').get(id);
+  const flightCount = db.prepare('SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id IN (SELECT id FROM users WHERE club_id = ? AND role = ?)').get(id, 'student');
+
+  res.json({
+    club,
+    stats: {
+      students: studentCount.count,
+      instructors: instructorCount.count,
+      sites: siteCount.count,
+      flights: flightCount.count
+    }
+  });
+});
+
+// ============================================================================
 // DASHBOARD ROUTE
 // ============================================================================
 
 // GET /api/dashboard
 app.get('/api/dashboard', requireAuth, requireInstructor, (req, res) => {
   const db = getDb();
+  const user = db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+
+  // Build club filter
+  let clubFilter = '1=1';
+  if (user.role === 'instructor') {
+    clubFilter = `u.club_id = ${user.club_id}`;
+  }
 
   // Count stats
   const activeStudents = db.prepare(
-    'SELECT COUNT(*) as count FROM users WHERE role = ? AND status = ?'
+    `SELECT COUNT(*) as count FROM users u WHERE u.role = ? AND u.status = ? AND ${clubFilter}`
   ).get('student', 'ongoing');
 
   const graduatedStudents = db.prepare(
-    "SELECT COUNT(*) as count FROM users WHERE role = 'student' AND status = 'completed'"
+    `SELECT COUNT(*) as count FROM users u WHERE u.role = 'student' AND u.status = 'completed' AND ${clubFilter}`
   ).get();
 
   const totalFlights = db.prepare(
-    'SELECT COALESCE(SUM(flight_count), 0) as count FROM flights'
+    `SELECT COALESCE(SUM(f.flight_count), 0) as count FROM flights f JOIN users u ON f.student_id = u.id WHERE ${clubFilter}`
   ).get();
 
   const totalLessons = db.prepare(
-    'SELECT COUNT(*) as count FROM lessons'
+    `SELECT COUNT(*) as count FROM lessons l JOIN users u ON l.instructor_id = u.id WHERE ${clubFilter}`
   ).get();
 
   // Active students with stats and last_flight_date
   const students = db.prepare(`
-    SELECT u.*
+    SELECT u.id, u.username, u.name, u.email, u.phone, u.role, u.status,
+           u.pp2_exam_passed, u.course_started, u.student_notes, u.club_id, u.created_at
     FROM users u
-    WHERE u.role = 'student' AND u.status = 'ongoing'
+    WHERE u.role = 'student' AND u.status = 'ongoing' AND ${clubFilter}
     ORDER BY u.name ASC
   `).all();
 
@@ -1328,6 +1651,7 @@ app.get('/api/dashboard', requireAuth, requireInstructor, (req, res) => {
     SELECT al.*, u.name as user_name
     FROM audit_log al
     LEFT JOIN users u ON al.user_id = u.id
+    WHERE ${clubFilter}
     ORDER BY al.timestamp DESC
     LIMIT 10
   `).all();
@@ -1338,7 +1662,7 @@ app.get('/api/dashboard', requireAuth, requireInstructor, (req, res) => {
     SELECT u.id, u.name, u.email, u.status,
       (SELECT MAX(date) FROM flights WHERE student_id = u.id) as last_flight_date
     FROM users u
-    WHERE u.role = 'student' AND u.status = 'ongoing'
+    WHERE u.role = 'student' AND u.status = 'ongoing' AND ${clubFilter}
     AND (
       (SELECT MAX(date) FROM flights WHERE student_id = u.id) IS NULL
       OR (SELECT MAX(date) FROM flights WHERE student_id = u.id) < ?
@@ -1367,9 +1691,16 @@ app.get('/api/audit-log', requireAuth, requireInstructor, (req, res) => {
   const { user_id, entity_type, from, to, limit = 100 } = req.query;
 
   const db = getDb();
+  const user = db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
 
   let query = 'SELECT al.*, u.name as user_name FROM audit_log al LEFT JOIN users u ON al.user_id = u.id WHERE 1=1';
   const params = [];
+
+  // Filter by club for instructors
+  if (user.role === 'instructor') {
+    query += ' AND u.club_id = ?';
+    params.push(user.club_id);
+  }
 
   if (user_id) {
     query += ' AND al.user_id = ?';
@@ -1428,21 +1759,33 @@ app.post('/api/seed', async (req, res) => {
 
     const hash = (pw) => bcrypt.hashSync(pw, 12);
 
-    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone) VALUES (?,?,?,?,?,?)`)
-      .run('ohjaaja', hash('ohjaaja123'), 'instructor', 'Matti Meikäläinen', 'matti@lentokerho.net', '040-1234567');
-    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone) VALUES (?,?,?,?,?,?)`)
-      .run('ohjaaja2', hash('ohjaaja123'), 'instructor', 'Liisa Lennonopettaja', 'liisa@lentokerho.net', '050-7654321');
+    // Create default club
+    const clubResult = db.prepare(`INSERT INTO clubs (name,slug,description) VALUES (?,?,?)`)
+      .run('Hämeenkyrön lentokerho', 'hameenkyro', 'Hämeenkyrön lentokerhon koulutusohjelma');
+    const clubId = clubResult.lastInsertRowid;
 
-    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started) VALUES (?,?,?,?,?,?,?,?)`)
-      .run('oppilas1', hash('oppilas123'), 'student', 'Pekka Pilotti', 'pekka@example.com', '044-1111111', 'ongoing', '2026-01-15');
-    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started) VALUES (?,?,?,?,?,?,?,?)`)
-      .run('oppilas2', hash('oppilas123'), 'student', 'Anna Aloittelija', 'anna@example.com', '044-2222222', 'ongoing', '2026-02-01');
-    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started) VALUES (?,?,?,?,?,?,?,?)`)
-      .run('oppilas3', hash('oppilas123'), 'student', 'Kalle Korkealentäjä', 'kalle@example.com', '044-3333333', 'ongoing', '2025-06-01');
+    // Create admin user (no club_id)
+    db.prepare(`INSERT INTO users (username,password_hash,role,name,email) VALUES (?,?,?,?,?)`)
+      .run('admin', hash('admin123'), 'admin', 'Pääkäyttäjä', 'admin@pilottipolku.fi');
 
-    db.prepare(`INSERT INTO sites (name,description) VALUES (?,?)`).run('Hämeenkyrön lentokenttä', 'EFHM, pääkenttä');
-    db.prepare(`INSERT INTO sites (name,description) VALUES (?,?)`).run('Viljakkala', 'Harjoittelurinne');
-    db.prepare(`INSERT INTO sites (name,description) VALUES (?,?)`).run('Särkänniemi tandem', 'Tandem-lentopaikka');
+    // Create instructors with club_id
+    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)`)
+      .run('ohjaaja', hash('ohjaaja123'), 'instructor', 'Matti Meikäläinen', 'matti@lentokerho.net', '040-1234567', clubId);
+    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)`)
+      .run('ohjaaja2', hash('ohjaaja123'), 'instructor', 'Liisa Lennonopettaja', 'liisa@lentokerho.net', '050-7654321', clubId);
+
+    // Create students with club_id
+    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run('oppilas1', hash('oppilas123'), 'student', 'Pekka Pilotti', 'pekka@example.com', '044-1111111', 'ongoing', '2026-01-15', clubId);
+    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run('oppilas2', hash('oppilas123'), 'student', 'Anna Aloittelija', 'anna@example.com', '044-2222222', 'ongoing', '2026-02-01', clubId);
+    db.prepare(`INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run('oppilas3', hash('oppilas123'), 'student', 'Kalle Korkealentäjä', 'kalle@example.com', '044-3333333', 'ongoing', '2025-06-01', clubId);
+
+    // Create sites with club_id
+    db.prepare(`INSERT INTO sites (name,description,club_id) VALUES (?,?,?)`).run('Hämeenkyrön lentokenttä', 'EFHM, pääkenttä', clubId);
+    db.prepare(`INSERT INTO sites (name,description,club_id) VALUES (?,?,?)`).run('Viljakkala', 'Harjoittelurinne', clubId);
+    db.prepare(`INSERT INTO sites (name,description,club_id) VALUES (?,?,?)`).run('Särkänniemi tandem', 'Tandem-lentopaikka', clubId);
 
     // Seed theory sections and topics
     const theorySections = [
@@ -1563,7 +1906,7 @@ app.post('/api/seed', async (req, res) => {
 // Initialize database then start server
 initDb().then(() => {
   app.listen(PORT, () => {
-    console.log(`Lentokerho app server running on http://localhost:${PORT}`);
+    console.log(`PilottiPolku app server running on http://localhost:${PORT}`);
   });
 }).catch(err => {
   console.error('Failed to initialize database:', err);

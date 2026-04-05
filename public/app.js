@@ -295,6 +295,17 @@ function setupNavigation() {
     window.addEventListener('hashchange', navigate);
     window._hashListenerSet = true;
   }
+
+  // Add clubs link for admin users
+  if (currentUser && currentUser.role === 'admin') {
+    const sidebarMenu = document.getElementById('sidebar-menu');
+    const clubsLi = document.createElement('li');
+    clubsLi.innerHTML = '<a href="#clubs" class="nav-link" data-nav-link="clubs">Kerhot</a>';
+
+    // Insert before audit-log
+    const auditLogLi = sidebarMenu.querySelector('[data-nav-link="audit-log"]').parentElement;
+    sidebarMenu.insertBefore(clubsLi, auditLogLi);
+  }
 }
 
 function navigate() {
@@ -338,6 +349,9 @@ function navigate() {
       break;
     case 'audit-log':
       renderAuditLog();
+      break;
+    case 'clubs':
+      renderClubs();
       break;
     default:
       renderDashboard();
@@ -629,6 +643,7 @@ async function renderStudentDetail(id) {
         <div style="display: flex; gap: 0; border-bottom: 2px solid #dee2e6; margin-bottom: 20px; flex-wrap: wrap;">
           <button class="tab-btn active" data-tab="flights-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; border-bottom: 2px solid #2E6DA4; margin-bottom: -2px; font-weight: bold;">Lennot</button>
           <button class="tab-btn" data-tab="theory-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Teoria</button>
+          <button class="tab-btn" data-tab="equipment-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Kalusto</button>
           <button class="tab-btn" data-tab="attachments-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Liitteet</button>
           ${isInstructor ? `
             <button class="tab-btn" data-tab="notes-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Muistiinpanot</button>
@@ -640,6 +655,9 @@ async function renderStudentDetail(id) {
         </div>
         <div id="theory-tab" class="tab-content" style="display: none;">
           <div id="theory-content">Ladataan...</div>
+        </div>
+        <div id="equipment-tab" class="tab-content" style="display: none;">
+          <div id="equipment-content">Ladataan...</div>
         </div>
         <div id="attachments-tab" class="tab-content" style="display: none;">
           <div id="attachments-content">Ladataan...</div>
@@ -675,6 +693,7 @@ async function renderStudentDetail(id) {
   // Load tab contents
   loadFlightsTab(id);
   loadTheoryTab(id);
+  loadEquipmentTab(id);
   loadAttachmentsTab(id);
   if (isInstructor) {
     loadNotesTab(id, student);
@@ -812,6 +831,174 @@ async function loadTheoryTab(studentId) {
   });
 
   $('theory-content').innerHTML = html;
+}
+
+async function loadEquipmentTab(studentId) {
+  const equipment = await api('GET', `/api/students/${studentId}/equipment`);
+  if (!equipment) return;
+
+  const isInstructor = currentUser && currentUser.role === 'instructor';
+  const isStudent = currentUser && currentUser.role === 'student';
+  const canEdit = isInstructor || (isStudent && currentUser.id == studentId);
+
+  // Check if reserve pack date is older than 12 months
+  let reserveWarning = '';
+  if (equipment.reserve_pack_date) {
+    const packDate = new Date(equipment.reserve_pack_date);
+    const today = new Date();
+    const monthsAgo = (today.getFullYear() - packDate.getFullYear()) * 12 + (today.getMonth() - packDate.getMonth());
+    if (monthsAgo > 12) {
+      reserveWarning = `<div style="background: #fff3cd; border: 1px solid #ffc107; color: #856404; padding: 12px; border-radius: 4px; margin-bottom: 16px;"><strong style="color: #dc3545;">⚠ Pakkaus yli 12 kk sitten!</strong> Varjon uudelleen pakkaus vaaditaan.</div>`;
+    }
+  }
+
+  let html = `
+    <h2>Kalusto</h2>
+    ${reserveWarning}
+
+    <form id="equipment-form" style="display: ${canEdit ? 'block' : 'none'};">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+        <!-- Wing -->
+        <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 16px;">
+          <h3 style="margin-top: 0;">Siipi</h3>
+          <div style="margin-bottom: 12px;">
+            <label>Valmistaja</label>
+            <input type="text" class="equipment-field" data-field="wing_manufacturer" value="${escapeHtml(equipment.wing_manufacturer || '')}" style="width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px;">
+          </div>
+          <div style="margin-bottom: 12px;">
+            <label>Malli</label>
+            <input type="text" class="equipment-field" data-field="wing_model" value="${escapeHtml(equipment.wing_model || '')}" style="width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px;">
+          </div>
+          <div style="margin-bottom: 12px;">
+            <label>Koko</label>
+            <input type="text" class="equipment-field" data-field="wing_size" value="${escapeHtml(equipment.wing_size || '')}" style="width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px;">
+          </div>
+          <div style="margin-bottom: 12px;">
+            <label>Valmistusvuosi</label>
+            <input type="number" class="equipment-field" data-field="wing_year" value="${equipment.wing_year || ''}" style="width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px;">
+          </div>
+          <div style="margin-bottom: 0;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" class="equipment-field" data-field="wing_club_owned" ${equipment.wing_club_owned ? 'checked' : ''}>
+              <span>Kerhon kalusto</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Harness -->
+        <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 16px;">
+          <h3 style="margin-top: 0;">Valjaat</h3>
+          <div style="margin-bottom: 12px;">
+            <label>Valmistaja</label>
+            <input type="text" class="equipment-field" data-field="harness_manufacturer" value="${escapeHtml(equipment.harness_manufacturer || '')}" style="width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px;">
+          </div>
+          <div style="margin-bottom: 12px;">
+            <label>Malli</label>
+            <input type="text" class="equipment-field" data-field="harness_model" value="${escapeHtml(equipment.harness_model || '')}" style="width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px;">
+          </div>
+          <div style="margin-bottom: 0;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" class="equipment-field" data-field="harness_club_owned" ${equipment.harness_club_owned ? 'checked' : ''}>
+              <span>Kerhon kalusto</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reserve Parachute -->
+      <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+        <h3 style="margin-top: 0;">Pelastusvarjo</h3>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+          <div>
+            <label>Valmistaja</label>
+            <input type="text" class="equipment-field" data-field="reserve_manufacturer" value="${escapeHtml(equipment.reserve_manufacturer || '')}" style="width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px;">
+          </div>
+          <div>
+            <label>Malli</label>
+            <input type="text" class="equipment-field" data-field="reserve_model" value="${escapeHtml(equipment.reserve_model || '')}" style="width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px;">
+          </div>
+          <div>
+            <label>Koko</label>
+            <input type="text" class="equipment-field" data-field="reserve_size" value="${escapeHtml(equipment.reserve_size || '')}" style="width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px;">
+          </div>
+          <div>
+            <label>Pakkauspvm</label>
+            <input type="date" class="equipment-field" data-field="reserve_pack_date" value="${equipment.reserve_pack_date || ''}" style="width: 100%; padding: 8px; box-sizing: border-box; margin-top: 4px;">
+          </div>
+          <div style="grid-column: 1 / -1;">
+            <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" class="equipment-field" data-field="reserve_club_owned" ${equipment.reserve_club_owned ? 'checked' : ''}>
+              <span>Kerhon kalusto</span>
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align: right;">
+        <button type="submit" class="btn btn-primary">Tallenna kalusto</button>
+      </div>
+    </form>
+
+    <div id="equipment-view" style="display: ${canEdit ? 'none' : 'block'};">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px;">
+        <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 16px;">
+          <h3>Siipi</h3>
+          <p><strong>Valmistaja:</strong> ${escapeHtml(equipment.wing_manufacturer || '-')}</p>
+          <p><strong>Malli:</strong> ${escapeHtml(equipment.wing_model || '-')}</p>
+          <p><strong>Koko:</strong> ${escapeHtml(equipment.wing_size || '-')}</p>
+          <p><strong>Vuosi:</strong> ${equipment.wing_year || '-'}</p>
+          <p><strong>Omistus:</strong> ${equipment.wing_club_owned ? 'Kerhon' : 'Henkilökohtainen'}</p>
+        </div>
+        <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 16px;">
+          <h3>Valjaat</h3>
+          <p><strong>Valmistaja:</strong> ${escapeHtml(equipment.harness_manufacturer || '-')}</p>
+          <p><strong>Malli:</strong> ${escapeHtml(equipment.harness_model || '-')}</p>
+          <p><strong>Omistus:</strong> ${equipment.harness_club_owned ? 'Kerhon' : 'Henkilökohtainen'}</p>
+        </div>
+      </div>
+      <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+        <h3>Pelastusvarjo</h3>
+        <p><strong>Valmistaja:</strong> ${escapeHtml(equipment.reserve_manufacturer || '-')}</p>
+        <p><strong>Malli:</strong> ${escapeHtml(equipment.reserve_model || '-')}</p>
+        <p><strong>Koko:</strong> ${escapeHtml(equipment.reserve_size || '-')}</p>
+        <p><strong>Pakkauspvm:</strong> ${formatDate(equipment.reserve_pack_date) || '-'}</p>
+        <p><strong>Omistus:</strong> ${equipment.reserve_club_owned ? 'Kerhon' : 'Henkilökohtainen'}</p>
+      </div>
+    </div>
+  `;
+
+  $('equipment-content').innerHTML = html;
+
+  // Attach form handler if editable
+  if (canEdit) {
+    const form = document.getElementById('equipment-form');
+    if (form) {
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        await saveEquipment(studentId);
+      });
+    }
+  }
+}
+
+async function saveEquipment(studentId) {
+  const fields = document.querySelectorAll('.equipment-field');
+  const data = {};
+
+  fields.forEach(field => {
+    const fieldName = field.getAttribute('data-field');
+    if (field.type === 'checkbox') {
+      data[fieldName] = field.checked;
+    } else {
+      data[fieldName] = field.value;
+    }
+  });
+
+  const result = await api('PUT', `/api/students/${studentId}/equipment`, data);
+  if (result) {
+    showSuccess('Kalusto tallennettu');
+    loadEquipmentTab(studentId);
+  }
 }
 
 async function loadAttachmentsTab(studentId) {
@@ -1889,6 +2076,213 @@ async function renderAuditLog() {
 
   html += '</tbody></table></div></div>';
   mainContent.innerHTML = html;
+}
+
+// ============================================================================
+// CLUBS VIEW (Admin only)
+// ============================================================================
+
+async function renderClubs() {
+  const mainContent = $('main-content');
+  mainContent.innerHTML = '<p style="text-align: center; padding: 40px;">Ladataan...</p>';
+
+  const data = await api('GET', '/api/clubs');
+  if (!data) return;
+
+  const clubs = data.clubs || [];
+
+  let html = `
+    <div style="padding: 20px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+        <h1>Kerhot</h1>
+        <button class="btn btn-primary" onclick="showCreateClubModal()">+ Uusi kerho</button>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); gap: 16px;">
+  `;
+
+  if (clubs.length > 0) {
+    clubs.forEach(club => {
+      const statusBg = club.is_active ? '#28a745' : '#6c757d';
+      const statusText = club.is_active ? 'Aktiivinen' : 'Poistettava';
+      html += `
+        <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; background: #fff;">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+            <div>
+              <h3 style="margin: 0 0 4px 0;">${escapeHtml(club.name)}</h3>
+              <p style="margin: 0; color: #666; font-size: 0.9em;">slug: ${escapeHtml(club.slug)}</p>
+            </div>
+            <span style="background: ${statusBg}; color: #fff; padding: 4px 8px; border-radius: 4px; font-size: 0.85em;">${statusText}</span>
+          </div>
+          <p style="margin: 8px 0; color: #555; line-height: 1.4;">${escapeHtml(club.description || '-')}</p>
+          <div style="display: flex; gap: 8px; margin-top: 12px;">
+            <button class="btn btn-small btn-secondary" onclick="loadClubStats(${club.id})">Tilastot</button>
+            <button class="btn btn-small btn-secondary" onclick="showEditClubModal(${club.id})">Muokkaa</button>
+          </div>
+        </div>
+      `;
+    });
+  } else {
+    html += '<p style="grid-column: 1 / -1; text-align: center; padding: 40px; color: #999;">Ei kerhoja vielä</p>';
+  }
+
+  html += '</div></div>';
+  mainContent.innerHTML = html;
+}
+
+function showCreateClubModal() {
+  const html = `
+    <form onsubmit="handleCreateClub(event)">
+      <div style="margin-bottom: 16px;">
+        <h3>Kerhon tiedot</h3>
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Kerhon nimi *</label>
+        <input type="text" id="club-name" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Slug (URL-ystävällinen) *</label>
+        <input type="text" id="club-slug" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div class="form-group" style="margin-bottom: 20px;">
+        <label>Kuvaus</label>
+        <textarea id="club-description" style="width: 100%; padding: 8px; box-sizing: border-box; min-height: 60px;"></textarea>
+      </div>
+
+      <div style="margin-bottom: 16px;">
+        <h3>Ensimmäinen ohjaaja</h3>
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Ohjaajan nimi *</label>
+        <input type="text" id="instructor-name" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Sähköposti *</label>
+        <input type="email" id="instructor-email" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Käyttäjänimi *</label>
+        <input type="text" id="instructor-username" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div class="form-group" style="margin-bottom: 20px;">
+        <label>Salasana *</label>
+        <input type="password" id="instructor-password" required minlength="8" style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+
+      <div style="text-align: right;">
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Peruuta</button>
+        <button type="submit" class="btn btn-primary">Luo kerho</button>
+      </div>
+    </form>
+  `;
+  showModal('Uusi kerho', html);
+}
+
+async function handleCreateClub(event) {
+  event.preventDefault();
+  const club_name = $('club-name').value.trim();
+  const club_slug = $('club-slug').value.trim();
+  const club_description = $('club-description').value.trim();
+  const instructor_name = $('instructor-name').value.trim();
+  const instructor_email = $('instructor-email').value.trim();
+  const instructor_username = $('instructor-username').value.trim();
+  const instructor_password = $('instructor-password').value;
+
+  if (!club_name || !club_slug || !instructor_name || !instructor_email || !instructor_username || !instructor_password) {
+    showError('Kaikki pakolliset kentät vaaditaan');
+    return;
+  }
+
+  const result = await api('POST', '/api/clubs', {
+    club_name, club_slug, club_description, instructor_name, instructor_email, instructor_username, instructor_password
+  });
+  if (result) {
+    hideModal();
+    showSuccess('Kerho luotu');
+    renderClubs();
+  }
+}
+
+async function loadClubStats(clubId) {
+  const data = await api('GET', `/api/clubs/${clubId}/stats`);
+  if (!data) return;
+
+  const club = data.club || {};
+  const stats = data.stats || {};
+
+  const html = `
+    <div style="text-align: center;">
+      <h2>${escapeHtml(club.name)}</h2>
+      <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; margin: 20px 0;">
+        <div style="background: #f8f9fa; padding: 16px; border-radius: 8px;">
+          <div style="font-size: 1.8em; font-weight: bold; color: #2E6DA4;">${stats.students || 0}</div>
+          <div>Oppilaita</div>
+        </div>
+        <div style="background: #f8f9fa; padding: 16px; border-radius: 8px;">
+          <div style="font-size: 1.8em; font-weight: bold; color: #2E6DA4;">${stats.instructors || 0}</div>
+          <div>Ohjaajia</div>
+        </div>
+        <div style="background: #f8f9fa; padding: 16px; border-radius: 8px;">
+          <div style="font-size: 1.8em; font-weight: bold; color: #2E6DA4;">${stats.sites || 0}</div>
+          <div>Lentopaikka</div>
+        </div>
+        <div style="background: #f8f9fa; padding: 16px; border-radius: 8px;">
+          <div style="font-size: 1.8em; font-weight: bold; color: #2E6DA4;">${stats.flights || 0}</div>
+          <div>Lentoja</div>
+        </div>
+      </div>
+    </div>
+  `;
+  showModal('Kerhon tilastot', html);
+}
+
+async function showEditClubModal(clubId) {
+  const data = await api('GET', `/api/clubs/${clubId}/stats`);
+  if (!data) return;
+
+  const club = data.club || {};
+  const html = `
+    <form onsubmit="handleUpdateClub(event, ${clubId})">
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Nimi</label>
+        <input type="text" id="club-name" value="${escapeHtml(club.name)}" style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Slug</label>
+        <input type="text" id="club-slug" value="${escapeHtml(club.slug)}" style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Kuvaus</label>
+        <textarea id="club-description" style="width: 100%; padding: 8px; box-sizing: border-box; min-height: 60px;">${escapeHtml(club.description || '')}</textarea>
+      </div>
+      <div class="form-group" style="margin-bottom: 20px;">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="club-active" ${club.is_active ? 'checked' : ''}>
+          <span>Aktiivinen</span>
+        </label>
+      </div>
+      <div style="text-align: right;">
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Peruuta</button>
+        <button type="submit" class="btn btn-primary">Tallenna</button>
+      </div>
+    </form>
+  `;
+  showModal('Muokkaa kerhoa', html);
+}
+
+async function handleUpdateClub(event, clubId) {
+  event.preventDefault();
+  const name = $('club-name').value.trim();
+  const slug = $('club-slug').value.trim();
+  const description = $('club-description').value.trim();
+  const is_active = $('club-active').checked;
+
+  const result = await api('PUT', `/api/clubs/${clubId}`, { name, slug, description, is_active });
+  if (result) {
+    hideModal();
+    showSuccess('Kerho tallennettu');
+    renderClubs();
+  }
 }
 
 // ============================================================================
