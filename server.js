@@ -1782,6 +1782,7 @@ function seedDatabase() {
   console.log('Database is empty \u2014 seeding default data...');
   const hash = (pw) => bcrypt.hashSync(pw, 12);
 
+  try {
     // Create default club
     const clubResult = db.prepare(`INSERT INTO clubs (name,slug,description) VALUES (?,?,?)`)
       .run('Hämeenkyrön lentokerho', 'hameenkyro', 'Hämeenkyrön lentokerhon koulutusohjelma');
