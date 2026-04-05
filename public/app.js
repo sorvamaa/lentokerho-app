@@ -289,7 +289,11 @@ async function handleLogin() {
     showSuccess('Kirjautuminen onnistui');
     setupNavigation();
     showAppView();
-    window.location.hash = '#dashboard';
+    if (currentUser.role === 'student') {
+      window.location.hash = '#student/' + currentUser.id;
+    } else {
+      window.location.hash = '#dashboard';
+    }
     navigate();
   }
 }
@@ -323,21 +327,40 @@ function setupNavigation() {
     window._hashListenerSet = true;
   }
 
-  // Add clubs link for admin users
-  if (currentUser && currentUser.role === 'admin') {
-    const sidebarMenu = document.getElementById('sidebar-menu');
-    const clubsLi = document.createElement('li');
-    clubsLi.innerHTML = '<a href="#clubs" class="nav-link" data-nav-link="clubs">Kerhot</a>';
+  const sidebarMenu = document.getElementById('sidebar-menu');
 
-    // Insert before audit-log
-    const auditLogLi = sidebarMenu.querySelector('[data-nav-link="audit-log"]').parentElement;
-    sidebarMenu.insertBefore(clubsLi, auditLogLi);
+  if (currentUser && currentUser.role === 'student') {
+    // Student sidebar: only own profile, sites, and theory
+    sidebarMenu.innerHTML = `
+      <li><a href="#student/${currentUser.id}" class="nav-link" data-nav-link="student">Omat tiedot</a></li>
+      <li><a href="#sites" class="nav-link" data-nav-link="sites">Lentopaikat</a></li>
+      <li><a href="#theory-management" class="nav-link" data-nav-link="theory-management">Teoria</a></li>
+    `;
+  } else {
+    // Add clubs link for admin users
+    if (currentUser && currentUser.role === 'admin') {
+      const clubsLi = document.createElement('li');
+      clubsLi.innerHTML = '<a href="#clubs" class="nav-link" data-nav-link="clubs">Kerhot</a>';
+
+      // Insert before audit-log
+      const auditLogLi = sidebarMenu.querySelector('[data-nav-link="audit-log"]').parentElement;
+      sidebarMenu.insertBefore(clubsLi, auditLogLi);
+    }
   }
 }
 
 function navigate() {
   const hash = window.location.hash.slice(1) || 'dashboard';
   const [view, ...params] = hash.split('/');
+
+  // Guard: redirect students away from instructor/admin-only views
+  if (currentUser && currentUser.role === 'student') {
+    const studentAllowed = ['student', 'sites', 'theory-management'];
+    if (!studentAllowed.includes(view)) {
+      window.location.hash = '#student/' + currentUser.id;
+      return;
+    }
+  }
 
   // Update active nav link
   document.querySelectorAll('[data-nav-link]').forEach(link => {
@@ -645,13 +668,14 @@ async function renderStudentDetail(id) {
   const student = await api('GET', `/api/students/${id}`);
   if (!student) return;
 
-  const isInstructor = currentUser && currentUser.role === 'instructor';
+  const isInstructor = currentUser && (currentUser.role === 'instructor' || currentUser.role === 'admin');
+  const isStudent = currentUser && currentUser.role === 'student';
 
   let html = `
     <div style="padding: 20px;">
-      <div style="margin-bottom: 10px;">
+      ${!isStudent ? `<div style="margin-bottom: 10px;">
         <button class="btn btn-secondary" onclick="window.location.hash='#students'">← Takaisin</button>
-      </div>
+      </div>` : ''}
 
       <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; margin-bottom: 20px;">
         <div>
@@ -733,7 +757,8 @@ async function loadFlightsTab(studentId) {
 
   const stats = data.student || {};
   const flights = data.flights || [];
-  const isInstructor = currentUser && currentUser.role === 'instructor';
+  const isInstructor = currentUser && (currentUser.role === 'instructor' || currentUser.role === 'admin');
+  const isStudent = currentUser && currentUser.role === 'student';
 
   let html = `
     <h2>Edistyminen</h2>
@@ -751,7 +776,7 @@ async function loadFlightsTab(studentId) {
 
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
       <h2>Lennot</h2>
-      ${isInstructor ? `<button class="btn btn-primary" onclick="showFlightModal(${studentId})">+ Lisää lento</button>` : ''}
+      ${(isInstructor || (isStudent && currentUser.id == studentId)) ? `<button class="btn btn-primary" onclick="showFlightModal(${studentId})">+ Lisää lento</button>` : ''}
     </div>
 
     <div style="overflow-x: auto;">
@@ -808,7 +833,7 @@ async function loadTheoryTab(studentId) {
 
   const completedKeys = data.completions || [];
   const completedSet = new Set(completedKeys);
-  const isInstructor = currentUser && currentUser.role === 'instructor';
+  const isInstructor = currentUser && (currentUser.role === 'instructor' || currentUser.role === 'admin');
 
   let html = '';
 
@@ -1033,10 +1058,11 @@ async function loadAttachmentsTab(studentId) {
   if (!data) return;
 
   const attachments = data.attachments || [];
-  const isInstructor = currentUser && currentUser.role === 'instructor';
+  const isInstructor = currentUser && (currentUser.role === 'instructor' || currentUser.role === 'admin');
+  const isStudent = currentUser && currentUser.role === 'student';
 
   let html = '';
-  if (isInstructor) {
+  if (isInstructor || (isStudent && currentUser.id == studentId)) {
     html += `<button class="btn btn-primary" onclick="showUploadAttachmentModal(${studentId})" style="margin-bottom: 15px;">+ Lisää liite</button>`;
   }
 
@@ -1671,11 +1697,13 @@ async function renderSites() {
 
   const sites = data.sites || [];
 
+  const isStudent = currentUser && currentUser.role === 'student';
+
   let html = `
     <div style="padding: 20px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h1>Lentopaikat</h1>
-        <button class="btn btn-primary" onclick="showAddSiteModal()">+ Lisää paikka</button>
+        ${!isStudent ? '<button class="btn btn-primary" onclick="showAddSiteModal()">+ Lisää paikka</button>' : ''}
       </div>
 
       <div style="overflow-x: auto;">
@@ -1684,7 +1712,7 @@ async function renderSites() {
             <tr style="background: #f8f9fa; text-align: left;">
               <th style="padding: 10px;">Nimi</th>
               <th style="padding: 10px;">Kuvaus</th>
-              <th style="padding: 10px;">Toiminnot</th>
+              ${!isStudent ? '<th style="padding: 10px;">Toiminnot</th>' : ''}
             </tr>
           </thead>
           <tbody>
@@ -1696,15 +1724,15 @@ async function renderSites() {
         <tr style="border-bottom: 1px solid #dee2e6;">
           <td style="padding: 10px;">${escapeHtml(site.name)}</td>
           <td style="padding: 10px;">${escapeHtml(site.description || '')}</td>
-          <td style="padding: 10px;">
+          ${!isStudent ? `<td style="padding: 10px;">
             <button class="btn btn-small btn-secondary" onclick="showEditSiteModal(${site.id})">Muokkaa</button>
             <button class="btn btn-small btn-danger" onclick="deleteSiteConfirm(${site.id})">Poista</button>
-          </td>
+          </td>` : ''}
         </tr>
       `;
     });
   } else {
-    html += '<tr><td colspan="3" style="text-align: center; padding: 20px;">Ei lentopaikkoja</td></tr>';
+    html += `<tr><td colspan="${isStudent ? 2 : 3}" style="text-align: center; padding: 20px;">Ei lentopaikkoja</td></tr>`;
   }
 
   html += '</tbody></table></div></div>';
