@@ -1329,6 +1329,8 @@ async function renderInstructors() {
   if (!data) return;
 
   const instructors = data.instructors || [];
+  const isAdmin = currentUser && currentUser.role === 'admin';
+  const colCount = isAdmin ? 5 : 4;
 
   let html = `
     <div style="padding: 20px;">
@@ -1342,6 +1344,7 @@ async function renderInstructors() {
           <thead>
             <tr style="background: #f8f9fa; text-align: left;">
               <th style="padding: 10px;">Nimi</th>
+              ${isAdmin ? '<th style="padding: 10px;">Kerho</th>' : ''}
               <th style="padding: 10px;">Sähköposti</th>
               <th style="padding: 10px;">Puhelin</th>
               <th style="padding: 10px;">Toiminnot</th>
@@ -1355,6 +1358,7 @@ async function renderInstructors() {
     html += `
       <tr style="border-bottom: 1px solid #dee2e6;">
         <td style="padding: 10px;">${escapeHtml(instructor.name)}</td>
+        ${isAdmin ? `<td style="padding: 10px;"><span style="background: #E8F0FE; color: #1a56db; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">${escapeHtml(instructor.club_name || 'Ei kerhoa')}</span></td>` : ''}
         <td style="padding: 10px;">${escapeHtml(instructor.email)}</td>
         <td style="padding: 10px;">${escapeHtml(instructor.phone || '-')}</td>
         <td style="padding: 10px;">
@@ -1365,16 +1369,38 @@ async function renderInstructors() {
   });
 
   if (instructors.length === 0) {
-    html += '<tr><td colspan="4" style="text-align: center; padding: 20px;">Ei ohjaajia</td></tr>';
+    html += `<tr><td colspan="${colCount}" style="text-align: center; padding: 20px;">Ei ohjaajia</td></tr>`;
   }
 
   html += '</tbody></table></div></div>';
   mainContent.innerHTML = html;
 }
 
-function showAddInstructorModal() {
+async function showAddInstructorModal() {
+  const isAdmin = currentUser && currentUser.role === 'admin';
+
+  // Admin needs to pick a club
+  let clubSelectHtml = '';
+  if (isAdmin) {
+    const clubData = await api('GET', '/api/clubs');
+    const clubs = (clubData && clubData.clubs) || [];
+    if (clubs.length === 0) {
+      showError('Luo ensin kerho ennen ohjaajan lisäämistä');
+      return;
+    }
+    clubSelectHtml = `
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Kerho *</label>
+        <select id="add-instr-club" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+          ${clubs.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('')}
+        </select>
+      </div>
+    `;
+  }
+
   const html = `
     <form onsubmit="handleAddInstructor(event)">
+      ${clubSelectHtml}
       <div class="form-group" style="margin-bottom: 12px;">
         <label>Nimi *</label>
         <input type="text" id="add-instr-name" required style="width: 100%; padding: 8px; box-sizing: border-box;">
@@ -1406,16 +1432,22 @@ function showAddInstructorModal() {
 
 async function handleAddInstructor(event) {
   event.preventDefault();
+  const isAdmin = currentUser && currentUser.role === 'admin';
   const name = $('add-instr-name').value.trim();
   const email = $('add-instr-email').value.trim();
   const phone = $('add-instr-phone').value.trim();
   const username = $('add-instr-username').value.trim();
   const password = $('add-instr-password').value;
+  const club_id = isAdmin ? $('add-instr-club').value : undefined;
 
   if (!name || !email || !username || !password) { showError('Pakolliset kentät puuttuvat'); return; }
+  if (isAdmin && !club_id) { showError('Valitse kerho'); return; }
   if (password.length < 8) { showError('Salasanan on oltava vähintään 8 merkkiä'); return; }
 
-  const result = await api('POST', '/api/instructors', { name, email, phone, username, password });
+  const payload = { name, email, phone, username, password };
+  if (club_id) payload.club_id = club_id;
+
+  const result = await api('POST', '/api/instructors', payload);
   if (result) {
     hideModal();
     showSuccess('Ohjaaja lisätty');

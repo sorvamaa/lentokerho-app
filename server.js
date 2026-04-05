@@ -1391,24 +1391,27 @@ app.get('/api/instructors', requireAuth, requireInstructor, (req, res) => {
   const db = getDb();
   const user = db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
 
-  let query = 'SELECT id, username, email, name, phone, club_id FROM users WHERE role = ?';
+  let query = `SELECT u.id, u.username, u.email, u.name, u.phone, u.club_id, c.name as club_name
+    FROM users u LEFT JOIN clubs c ON u.club_id = c.id WHERE u.role = ?`;
   const params = ['instructor'];
 
   // Instructor sees only their club's instructors; admin can filter by club_id param
   if (user.role === 'instructor') {
-    query += ' AND club_id = ?';
+    query += ' AND u.club_id = ?';
     params.push(user.club_id);
   } else if (user.role === 'admin' && req.query.club_id) {
-    query += ' AND club_id = ?';
+    query += ' AND u.club_id = ?';
     params.push(req.query.club_id);
   }
+
+  query += ' ORDER BY c.name ASC, u.name ASC';
 
   const instructors = db.prepare(query).all(...params);
   res.json({ instructors });
 });
 
-// POST /api/instructors
-app.post('/api/instructors', requireAuth, requireAdmin, (req, res) => {
+// POST /api/instructors (admin or instructor in same club)
+app.post('/api/instructors', requireAuth, requireInstructor, (req, res) => {
   const { name, email, phone, username, password, club_id } = req.body;
 
   if (!name || !email || !username || !password) {
@@ -1420,6 +1423,20 @@ app.post('/api/instructors', requireAuth, requireAdmin, (req, res) => {
   }
 
   const db = getDb();
+  const currentUser = db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+
+  // Determine target club_id
+  let targetClubId;
+  if (currentUser.role === 'admin') {
+    // Admin must specify club_id
+    if (!club_id) {
+      return res.status(400).json({ error: 'Club ID required for admin' });
+    }
+    targetClubId = club_id;
+  } else {
+    // Instructor: always assigns to own club
+    targetClubId = currentUser.club_id;
+  }
 
   const existingUser = db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(username, email);
   if (existingUser) {
@@ -1430,7 +1447,7 @@ app.post('/api/instructors', requireAuth, requireAdmin, (req, res) => {
 
   const result = db.prepare(
     'INSERT INTO users (username, email, name, password_hash, phone, role, club_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(username, email, name, hashedPassword, phone || null, 'instructor', club_id || null);
+  ).run(username, email, name, hashedPassword, phone || null, 'instructor', targetClubId);
 
   logAction(req.session.userId, 'CREATE', 'instructor', result.lastInsertRowid, { name, email });
 
@@ -1441,7 +1458,7 @@ app.post('/api/instructors', requireAuth, requireAdmin, (req, res) => {
   res.status(201).json(instructor);
 });
 
-// DELETE /api/instructors/:id
+// DELETE /api/instructors/:id (admin or instructor in same club)
 app.delete('/api/instructors/:id', requireAuth, requireInstructor, (req, res) => {
   const { id } = req.params;
   const userId = req.session.userId;
@@ -1451,10 +1468,16 @@ app.delete('/api/instructors/:id', requireAuth, requireInstructor, (req, res) =>
   }
 
   const db = getDb();
+  const currentUser = db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(userId);
   const instructor = db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(id, 'instructor');
 
   if (!instructor) {
     return res.status(404).json({ error: 'Instructor not found' });
+  }
+
+  // Instructor can only delete instructors from their own club
+  if (currentUser.role === 'instructor' && instructor.club_id !== currentUser.club_id) {
+    return res.status(403).json({ error: 'Cannot delete instructor from another club' });
   }
 
   db.prepare('DELETE FROM users WHERE id = ?').run(id);
