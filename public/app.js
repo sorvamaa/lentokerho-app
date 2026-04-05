@@ -302,6 +302,19 @@ async function handleLogout() {
   await api('POST', '/api/logout');
   currentUser = null;
   window.location.hash = '';
+  // Reset sidebar to default state
+  const sidebarMenu = document.getElementById('sidebar-menu');
+  if (sidebarMenu) {
+    sidebarMenu.innerHTML = `
+      <li><a href="#dashboard" class="nav-link" data-nav-link="dashboard">Dashboard</a></li>
+      <li><a href="#students" class="nav-link" data-nav-link="students">Oppilaat</a></li>
+      <li><a href="#instructors" class="nav-link" data-nav-link="instructors">Ohjaajat</a></li>
+      <li><a href="#lessons" class="nav-link" data-nav-link="lessons">Oppitunnit</a></li>
+      <li><a href="#sites" class="nav-link" data-nav-link="sites">Lentopaikat</a></li>
+      <li><a href="#theory-management" class="nav-link" data-nav-link="theory-management">Teoria</a></li>
+      <li><a href="#audit-log" class="nav-link" data-nav-link="audit-log">Loki</a></li>
+    `;
+  }
   showLoginView();
 }
 
@@ -337,15 +350,21 @@ function setupNavigation() {
       <li><a href="#theory-management" class="nav-link" data-nav-link="theory-management">Teoria</a></li>
     `;
   } else {
+    // Always reset sidebar to full instructor/admin links
+    let menuHtml = `
+      <li><a href="#dashboard" class="nav-link" data-nav-link="dashboard">Dashboard</a></li>
+      <li><a href="#students" class="nav-link" data-nav-link="students">Oppilaat</a></li>
+      <li><a href="#instructors" class="nav-link" data-nav-link="instructors">Ohjaajat</a></li>
+      <li><a href="#lessons" class="nav-link" data-nav-link="lessons">Oppitunnit</a></li>
+      <li><a href="#sites" class="nav-link" data-nav-link="sites">Lentopaikat</a></li>
+      <li><a href="#theory-management" class="nav-link" data-nav-link="theory-management">Teoria</a></li>
+    `;
     // Add clubs link for admin users
     if (currentUser && currentUser.role === 'admin') {
-      const clubsLi = document.createElement('li');
-      clubsLi.innerHTML = '<a href="#clubs" class="nav-link" data-nav-link="clubs">Kerhot</a>';
-
-      // Insert before audit-log
-      const auditLogLi = sidebarMenu.querySelector('[data-nav-link="audit-log"]').parentElement;
-      sidebarMenu.insertBefore(clubsLi, auditLogLi);
+      menuHtml += `<li><a href="#clubs" class="nav-link" data-nav-link="clubs">Kerhot</a></li>`;
     }
+    menuHtml += `<li><a href="#audit-log" class="nav-link" data-nav-link="audit-log">Loki</a></li>`;
+    sidebarMenu.innerHTML = menuHtml;
   }
 }
 
