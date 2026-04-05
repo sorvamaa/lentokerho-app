@@ -10,6 +10,7 @@ let currentView = 'dashboard';
 let currentStudentId = null;
 let currentLessonId = null;
 let isLoading = false;
+let loginGeneration = 0; // Tracks login sessions to prevent stale 401s from cancelling new logins
 
 // ============================================================================
 // THEORY TOPICS — loaded dynamically from database
@@ -58,12 +59,19 @@ async function api(method, url, body = null) {
     options.body = JSON.stringify(body);
   }
 
+  const requestGeneration = loginGeneration;
+
   try {
     const response = await fetch(url, options);
 
     if (response.status === 401) {
-      currentUser = null;
-      showLoginView();
+      // Only show login if no new login has happened since this request started.
+      // This prevents stale 401 responses (from in-flight requests during logout)
+      // from kicking a user out after they've already logged in as a new user.
+      if (requestGeneration === loginGeneration) {
+        currentUser = null;
+        showLoginView();
+      }
       return null;
     }
 
@@ -285,6 +293,7 @@ async function handleLogin() {
 
   const result = await api('POST', '/api/login', { username, password });
   if (result && result.id) {
+    loginGeneration++; // Invalidate any pending 401 handlers from previous session
     currentUser = result;
     showSuccess('Kirjautuminen onnistui');
     setupNavigation();
