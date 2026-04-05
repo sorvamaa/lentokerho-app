@@ -1090,7 +1090,7 @@ async function loadAttachmentsTab(studentId) {
   const isStudent = currentUser && currentUser.role === 'student';
 
   let html = '';
-  if (isInstructor || (isStudent && currentUser.id == studentId)) {
+  if (isInstructor) {
     html += `<button class="btn btn-primary" onclick="showUploadAttachmentModal(${studentId})" style="margin-bottom: 15px;">+ Lisää liite</button>`;
   }
 
