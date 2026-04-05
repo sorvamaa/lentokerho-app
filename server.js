@@ -1773,14 +1773,14 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Temporary seed endpoint (remove after first use)
-app.post('/api/seed', async (req, res) => {
-  try {
-    const db = getDb();
-    const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
-    if (userCount > 0) return res.json({ message: 'Already seeded', userCount });
+// Seed database with default data (runs automatically on startup if DB is empty)
+function seedDatabase() {
+  const db = getDb();
+  const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+  if (userCount > 0) return { message: 'Already seeded', userCount };
 
-    const hash = (pw) => bcrypt.hashSync(pw, 12);
+  console.log('Database is empty \u2014 seeding default data...');
+  const hash = (pw) => bcrypt.hashSync(pw, 12);
 
     // Create default club
     const clubResult = db.prepare(`INSERT INTO clubs (name,slug,description) VALUES (?,?,?)`)
@@ -1920,14 +1920,33 @@ app.post('/api/seed', async (req, res) => {
       }
     }
 
-    res.json({ message: 'Seed complete', users: 5, sites: 3, theorySections: theorySections.length });
+    console.log('Seed complete: 5 users, 3 sites, ' + theorySections.length + ' theory sections');
+    return { message: 'Seed complete', users: 5, sites: 3, theorySections: theorySections.length };
+  } catch(e) {
+    console.error('Seed error:', e.message);
+    throw e;
+  }
+}
+
+// Seed endpoint (also available via HTTP for manual use)
+app.post('/api/seed', async (req, res) => {
+  try {
+    const result = seedDatabase();
+    res.json(result);
   } catch(e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// Initialize database then start server
+// Initialize database, auto-seed if empty, then start server
 initDb().then(() => {
+  // Automatically seed the database if it's empty (e.g. after volume wipe)
+  try {
+    seedDatabase();
+  } catch(e) {
+    console.error('Auto-seed failed:', e.message);
+  }
+
   app.listen(PORT, () => {
     console.log(`PilottiPolku app server running on http://localhost:${PORT}`);
   });
