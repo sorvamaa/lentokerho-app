@@ -380,7 +380,16 @@ app.get('/api/students/:id', requireAuth, (req, res) => {
   const { id } = req.params;
   const db = getDb();
 
-  const student = db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(id, 'student');
+  // Access control: students can only view their own profile
+  const requestingUser = db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+  if (requestingUser.role === 'student' && req.session.userId !== parseInt(id)) {
+    return res.status(403).json({ error: 'Not authorized to view this student' });
+  }
+
+  // Never return password_hash — use explicit column list
+  const student = db.prepare(
+    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, course_started, student_notes, created_at FROM users WHERE id = ? AND role = ?'
+  ).get(id, 'student');
 
   if (!student) {
     return res.status(404).json({ error: 'Student not found' });
@@ -1108,15 +1117,27 @@ app.get('/api/sites', requireAuth, (req, res) => {
 
 // POST /api/sites
 app.post('/api/sites', requireAuth, requireInstructor, (req, res) => {
-  const { name, description } = req.body;
+  const { name, description, club_id } = req.body;
 
   if (!name) {
     return res.status(400).json({ error: 'Name required' });
   }
 
   const db = getDb();
-  const userClubId = getUserClubId(req);
-  const result = db.prepare('INSERT INTO sites (name, description, club_id) VALUES (?, ?, ?)').run(name, description || null, userClubId);
+  const requestingUser = db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+  let siteClubId;
+
+  if (requestingUser.role === 'admin') {
+    // Admin must provide club_id, or use the first club as default
+    siteClubId = club_id || db.prepare('SELECT id FROM clubs LIMIT 1').get()?.id;
+    if (!siteClubId) {
+      return res.status(400).json({ error: 'club_id required (no clubs exist)' });
+    }
+  } else {
+    siteClubId = requestingUser.club_id;
+  }
+
+  const result = db.prepare('INSERT INTO sites (name, description, club_id) VALUES (?, ?, ?)').run(name, description || null, siteClubId);
 
   logAction(req.session.userId, 'CREATE', 'site', result.lastInsertRowid, { name });
 
@@ -1369,9 +1390,9 @@ app.put('/api/students/:id/equipment', requireAuth, (req, res) => {
       'INSERT INTO equipment (student_id, wing_manufacturer, wing_model, wing_size, wing_year, wing_club_owned, harness_manufacturer, harness_model, harness_club_owned, reserve_manufacturer, reserve_model, reserve_size, reserve_pack_date, reserve_club_owned, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     ).run(
       id,
-      wing_manufacturer || '', wing_model || '', wing_size || '', wing_year, wing_club_owned ? 1 : 0,
+      wing_manufacturer || '', wing_model || '', wing_size || '', wing_year || null, wing_club_owned ? 1 : 0,
       harness_manufacturer || '', harness_model || '', harness_club_owned ? 1 : 0,
-      reserve_manufacturer || '', reserve_model || '', reserve_size || '', reserve_pack_date, reserve_club_owned ? 1 : 0,
+      reserve_manufacturer || '', reserve_model || '', reserve_size || '', reserve_pack_date || null, reserve_club_owned ? 1 : 0,
       new Date().toISOString()
     );
   }
