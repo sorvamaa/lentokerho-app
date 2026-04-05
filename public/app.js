@@ -97,8 +97,35 @@ function showAppView() {
   $('reset-password-view').style.display = 'none';
   $('header-right').hidden = false;
   if (currentUser) {
-    $('user-display').textContent = currentUser.name + ' (' + currentUser.role + ')';
+    const roleLabels = { admin: 'Pääkäyttäjä', instructor: 'Ohjaaja', student: 'Oppilas' };
+    const roleLabel = roleLabels[currentUser.role] || currentUser.role;
+    $('user-display').textContent = currentUser.name + ' (' + roleLabel + ')';
+    // Show club name for non-admin users
+    loadClubNameToHeader();
   }
+}
+
+async function loadClubNameToHeader() {
+  if (!currentUser || currentUser.role === 'admin') {
+    const el = $('club-display');
+    if (el) el.style.display = 'none';
+    return;
+  }
+  try {
+    const data = await api('GET', '/api/clubs');
+    if (data && data.clubs && data.clubs.length > 0) {
+      const club = data.clubs[0];
+      let el = $('club-display');
+      if (!el) {
+        el = document.createElement('span');
+        el.id = 'club-display';
+        el.style.cssText = 'color: #8bb8e8; font-size: 0.85em; margin-right: 8px; padding: 2px 10px; border: 1px solid rgba(139,184,232,0.3); border-radius: 12px;';
+        $('header-right').insertBefore(el, $('header-right').firstChild);
+      }
+      el.textContent = club.name;
+      el.style.display = '';
+    }
+  } catch(e) { /* ignore */ }
 }
 
 function showError(msg) {
@@ -1750,9 +1777,11 @@ async function renderTheoryManagement() {
   const structure = await getTheoryStructure(true); // force refresh
   if (!structure) return;
 
+  const isAdmin = currentUser && currentUser.role === 'admin';
+
   let html = `
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-      <h1 style="margin: 0;">Teoriaopintojen hallinta</h1>
+      <h1 style="margin: 0;">Teoriaopinnot${isAdmin ? ' — hallinta' : ''}</h1>
     </div>
   `;
 
@@ -1765,7 +1794,7 @@ async function renderTheoryManagement() {
       <div style="margin-bottom: 30px;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
           <h2 style="margin: 0;">${level.toUpperCase()} <span style="color: #666; font-size: 0.7em; font-weight: normal;">${totalTopics} aihetta, ${formatDuration(totalDuration)}</span></h2>
-          <button class="btn btn-primary" onclick="showAddSectionModal('${level}')" style="font-size: 0.9em;">+ Lisää aihealue</button>
+          ${isAdmin ? `<button class="btn btn-primary" onclick="showAddSectionModal('${level}')" style="font-size: 0.9em;">+ Lisää aihealue</button>` : ''}
         </div>
     `;
 
@@ -1781,11 +1810,11 @@ async function renderTheoryManagement() {
               <strong style="font-size: 1.1em;">${escapeHtml(section.title)}</strong>
               <span style="color: #666; margin-left: 10px; font-size: 0.85em;">${section.topics.length} aihetta, ${formatDuration(section.total_duration)}</span>
             </div>
-            <div style="display: flex; gap: 6px;">
+            ${isAdmin ? `<div style="display: flex; gap: 6px;">
               <button class="btn btn-sm" onclick="showEditSectionModal(${section.id}, '${escapeHtml(section.title)}')" style="padding: 4px 10px; font-size: 0.85em; background: #6c757d; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Muokkaa</button>
               <button class="btn btn-sm" onclick="deleteSection(${section.id})" style="padding: 4px 10px; font-size: 0.85em; background: #dc3545; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Poista</button>
               <button class="btn btn-sm" onclick="showAddTopicModal(${section.id}, '${level}')" style="padding: 4px 10px; font-size: 0.85em; background: #2E6DA4; color: #fff; border: none; border-radius: 4px; cursor: pointer;">+ Aihe</button>
-            </div>
+            </div>` : ''}
           </div>
           <div style="padding: 8px 16px;">
       `;
@@ -1802,10 +1831,10 @@ async function renderTheoryManagement() {
               <span style="color: #999; font-size: 0.85em; margin-left: 8px;">${topic.duration_minutes} min</span>
               ${topic.comment ? `<span style="color: #2E6DA4; font-size: 0.85em; margin-left: 8px;" title="${escapeHtml(topic.comment)}">&#128712; ${escapeHtml(topic.comment.length > 40 ? topic.comment.substring(0, 40) + '...' : topic.comment)}</span>` : ''}
             </div>
-            <div style="display: flex; gap: 6px; flex-shrink: 0;">
+            ${isAdmin ? `<div style="display: flex; gap: 6px; flex-shrink: 0;">
               <button onclick="showEditTopicModal(${topic.id})" style="padding: 2px 8px; font-size: 0.8em; background: #6c757d; color: #fff; border: none; border-radius: 3px; cursor: pointer;">Muokkaa</button>
               <button onclick="deleteTopic(${topic.id})" style="padding: 2px 8px; font-size: 0.8em; background: #dc3545; color: #fff; border: none; border-radius: 3px; cursor: pointer;">Poista</button>
-            </div>
+            </div>` : ''}
           </div>
         `;
       });

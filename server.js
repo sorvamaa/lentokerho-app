@@ -698,8 +698,8 @@ app.get('/api/theory/structure', requireAuth, (req, res) => {
   res.json(structure);
 });
 
-// GET /api/theory/sections — list all sections
-app.get('/api/theory/sections', requireAuth, requireInstructor, (req, res) => {
+// GET /api/theory/sections — list all sections (admin only)
+app.get('/api/theory/sections', requireAuth, requireAdmin, (req, res) => {
   const db = getDb();
   const sections = db.prepare(
     'SELECT * FROM theory_sections ORDER BY level, sort_order'
@@ -707,8 +707,8 @@ app.get('/api/theory/sections', requireAuth, requireInstructor, (req, res) => {
   res.json({ sections });
 });
 
-// POST /api/theory/sections — create a new section
-app.post('/api/theory/sections', requireAuth, requireInstructor, (req, res) => {
+// POST /api/theory/sections — create a new section (admin only)
+app.post('/api/theory/sections', requireAuth, requireAdmin, (req, res) => {
   const { level, key, title } = req.body;
   if (!level || !key || !title) {
     return res.status(400).json({ error: 'level, key, and title are required' });
@@ -740,8 +740,8 @@ app.post('/api/theory/sections', requireAuth, requireInstructor, (req, res) => {
   }
 });
 
-// PUT /api/theory/sections/:id — update a section
-app.put('/api/theory/sections/:id', requireAuth, requireInstructor, (req, res) => {
+// PUT /api/theory/sections/:id — update a section (admin only)
+app.put('/api/theory/sections/:id', requireAuth, requireAdmin, (req, res) => {
   const { id } = req.params;
   const { title, sort_order } = req.body;
   const db = getDb();
@@ -760,8 +760,8 @@ app.put('/api/theory/sections/:id', requireAuth, requireInstructor, (req, res) =
   res.json({ success: true });
 });
 
-// DELETE /api/theory/sections/:id — delete a section (only if no topics)
-app.delete('/api/theory/sections/:id', requireAuth, requireInstructor, (req, res) => {
+// DELETE /api/theory/sections/:id — delete a section, admin only (only if no topics)
+app.delete('/api/theory/sections/:id', requireAuth, requireAdmin, (req, res) => {
   const { id } = req.params;
   const db = getDb();
 
@@ -778,8 +778,8 @@ app.delete('/api/theory/sections/:id', requireAuth, requireInstructor, (req, res
   res.json({ success: true });
 });
 
-// POST /api/theory/sections/:id/topics — create a topic in a section
-app.post('/api/theory/sections/:sectionId/topics', requireAuth, requireInstructor, (req, res) => {
+// POST /api/theory/sections/:id/topics — create a topic in a section (admin only)
+app.post('/api/theory/sections/:sectionId/topics', requireAuth, requireAdmin, (req, res) => {
   const { sectionId } = req.params;
   const { key, title, duration_minutes, comment } = req.body;
 
@@ -812,8 +812,8 @@ app.post('/api/theory/sections/:sectionId/topics', requireAuth, requireInstructo
   }
 });
 
-// PUT /api/theory/topics/:id — update a topic
-app.put('/api/theory/topics/:id', requireAuth, requireInstructor, (req, res) => {
+// PUT /api/theory/topics/:id — update a topic (admin only)
+app.put('/api/theory/topics/:id', requireAuth, requireAdmin, (req, res) => {
   const { id } = req.params;
   const { title, duration_minutes, comment, sort_order } = req.body;
   const db = getDb();
@@ -834,8 +834,8 @@ app.put('/api/theory/topics/:id', requireAuth, requireInstructor, (req, res) => 
   res.json({ success: true });
 });
 
-// DELETE /api/theory/topics/:id — delete a topic (only if no completions)
-app.delete('/api/theory/topics/:id', requireAuth, requireInstructor, (req, res) => {
+// DELETE /api/theory/topics/:id — delete a topic, admin only (only if no completions)
+app.delete('/api/theory/topics/:id', requireAuth, requireAdmin, (req, res) => {
   const { id } = req.params;
   const db = getDb();
 
