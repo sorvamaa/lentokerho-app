@@ -1100,8 +1100,8 @@ app.get('/api/sites', requireAuth, (req, res) => {
   let query = 'SELECT * FROM sites';
   const params = [];
 
-  // Instructor sees only their club's sites; admin can filter by club_id param
-  if (user.role === 'instructor') {
+  // Instructor and student see only their club's sites; admin can filter by club_id param
+  if (user.role === 'instructor' || user.role === 'student') {
     query += ' WHERE club_id = ?';
     params.push(user.club_id);
   } else if (user.role === 'admin' && req.query.club_id) {
