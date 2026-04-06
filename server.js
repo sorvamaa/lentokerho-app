@@ -15,7 +15,7 @@ const { initDb, getDb } = require('./db');
 const { logAction } = require('./audit');
 const { sendPasswordReset } = require('./mailer');
 
-// Sentry error tracking (optional — only if DSN is configured)
+// Sentry error tracking (optional â only if DSN is configured)
 let Sentry = null;
 if (process.env.SENTRY_DSN) {
   Sentry = require('@sentry/node');
@@ -51,7 +51,7 @@ app.set('trust proxy', 1);
 // SECURITY MIDDLEWARE
 // ============================================================================
 
-// Helmet.js — security headers
+// Helmet.js â security headers
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -66,21 +66,21 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-// Rate limiting — login endpoint (5 attempts per 15 minutes)
+// Rate limiting â login endpoint (5 attempts per 15 minutes)
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
-  message: { error: 'Liian monta kirjautumisyritystä. Yritä uudelleen 15 minuutin kuluttua.' },
+  message: { error: 'Liian monta kirjautumisyritystÃ¤. YritÃ¤ uudelleen 15 minuutin kuluttua.' },
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => req.ip
 });
 
-// Rate limiting — general API (100 requests per minute)
+// Rate limiting â general API (100 requests per minute)
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
-  message: { error: 'Liian monta pyyntöä. Yritä hetken kuluttua uudelleen.' },
+  message: { error: 'Liian monta pyyntÃ¶Ã¤. YritÃ¤ hetken kuluttua uudelleen.' },
   standardHeaders: true,
   legacyHeaders: false
 });
@@ -157,3 +157,2090 @@ const requireAuth = (req, res, next) => {
   }
   next();
 };
+
+// Middleware: Instructor role check (allows admin too)
+const requireInstructor = async (req, res, next) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const db = getDb();
+  const user = await db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+
+  if (!user || (user.role !== 'instructor' && user.role !== 'admin')) {
+    return res.status(403).json({ error: 'Instructor access required' });
+  }
+  next();
+};
+
+// Middleware: Admin role check
+const requireAdmin = async (req, res, next) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const db = getDb();
+  const user = await db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+};
+
+// Helper: Get user's club_id
+const getUserClubId = async (req) => {
+  const db = getDb();
+  const user = await db.prepare('SELECT club_id, role FROM users WHERE id = ?').get(req.session.userId);
+  return user ? user.club_id : null;
+};
+
+// Helper: Get user object without password
+const getUserWithoutPassword = async (userId) => {
+  const db = getDb();
+  return await db.prepare('SELECT id, username, email, name, role, phone FROM users WHERE id = ?').get(userId);
+};
+
+// ============================================================================
+// AUTH ROUTES
+// ============================================================================
+
+// POST /api/login
+app.post('/api/login', loginLimiter, async (req, res) => {
+  const { username, password } = req.body;
+
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password required' });
+  }
+
+  const db = getDb();
+  const user = await db.prepare('SELECT * FROM users WHERE username = ?').get(username);
+
+  if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  req.session.userId = user.id;
+  await logAction(user.id, 'LOGIN', 'user', user.id, {});
+
+  const safeUser = await getUserWithoutPassword(user.id);
+  res.json(safeUser);
+});
+
+// POST /api/logout
+app.post('/api/logout', requireAuth, async (req, res) => {
+  const userId = req.session.userId;
+  await logAction(userId, 'LOGOUT', 'user', userId, {});
+  req.session.destroy((err) => {
+    if (err) {
+      return res.status(500).json({ error: 'Failed to logout' });
+    }
+    res.json({ success: true });
+  });
+});
+
+// GET /api/me
+app.get('/api/me', requireAuth, async (req, res) => {
+  const user = await getUserWithoutPassword(req.session.userId);
+  res.json(user);
+});
+
+// POST /api/change-password
+app.post('/api/change-password', requireAuth, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  const userId = req.session.userId;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ error: 'Current and new password required' });
+  }
+
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  }
+
+  const db = getDb();
+  const user = await db.prepare('SELECT password_hash FROM users WHERE id = ?').get(userId);
+
+  if (!user || !bcrypt.compareSync(currentPassword, user.password_hash)) {
+    return res.status(401).json({ error: 'Current password is incorrect' });
+  }
+
+  const hashedPassword = bcrypt.hashSync(newPassword, 12);
+  await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashedPassword, userId);
+
+  await logAction(userId, 'CHANGE_PASSWORD', 'user', userId, {});
+  res.json({ success: true });
+});
+
+// POST /api/forgot-password
+app.post('/api/forgot-password', async (req, res) => {
+  const { email } = req.body;
+
+  if (!email) {
+    return res.status(400).json({ error: 'Email required' });
+  }
+
+  const db = getDb();
+  const user = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+
+  // Always return 200 to avoid revealing if email exists
+  if (user) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const hashedToken = bcrypt.hashSync(token, 10);
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await db.prepare(
+      'INSERT INTO password_resets (user_id, token_hash, expires_at, used) VALUES (?, ?, ?, 0)'
+    ).run(user.id, hashedToken, expiresAt);
+
+    const resetUrl = `${process.env.APP_URL || 'http://localhost:3000'}/reset-password?token=${token}`;
+    sendPasswordReset(email, resetUrl);
+
+    await logAction(user.id, 'FORGOT_PASSWORD', 'user', user.id, {});
+  }
+
+  res.json({ success: true });
+});
+
+// POST /api/reset-password
+app.post('/api/reset-password', async (req, res) => {
+  const { token, newPassword } = req.body;
+
+  if (!token || !newPassword) {
+    return res.status(400).json({ error: 'Token and new password required' });
+  }
+
+  if (newPassword.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  const db = getDb();
+  const now = new Date();
+
+  const reset = await db.prepare(
+    'SELECT id, user_id, token_hash FROM password_resets WHERE used = 0 AND expires_at > ? ORDER BY created_at DESC LIMIT 1'
+  ).get(now);
+
+  if (!reset || !bcrypt.compareSync(token, reset.token_hash)) {
+    return res.status(400).json({ error: 'Invalid or expired reset token' });
+  }
+
+  const hashedPassword = bcrypt.hashSync(newPassword, 12);
+
+  await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashedPassword, reset.user_id);
+  await db.prepare('UPDATE password_resets SET used = 1 WHERE id = ?').run(reset.id);
+
+  await logAction(reset.user_id, 'RESET_PASSWORD', 'user', reset.user_id, {});
+  res.json({ success: true });
+});
+
+// POST /api/admin/reset-password â Instructor can reset student passwords
+app.post('/api/admin/reset-password', requireAuth, requireInstructor, async (req, res) => {
+  const { user_id, new_password } = req.body;
+
+  if (!user_id || !new_password) {
+    return res.status(400).json({ error: 'user_id and new_password required' });
+  }
+
+  if (new_password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  const db = getDb();
+  const targetUser = await db.prepare('SELECT id, role, club_id FROM users WHERE id = ?').get(user_id);
+
+  if (!targetUser) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  // Instructor can only reset passwords for users in their club
+  const currentUser = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+
+  if (currentUser.role === 'instructor') {
+    if (targetUser.club_id !== currentUser.club_id) {
+      return res.status(403).json({ error: 'Can only reset passwords for your club members' });
+    }
+    // Instructor cannot reset other instructor passwords (only students)
+    if (targetUser.role === 'instructor' && targetUser.id !== req.session.userId) {
+      return res.status(403).json({ error: 'Instructors cannot reset other instructor passwords' });
+    }
+  }
+
+  const hashedPassword = bcrypt.hashSync(new_password, 12);
+  await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashedPassword, user_id);
+
+  await logAction(req.session.userId, 'ADMIN_RESET_PASSWORD', 'user', user_id, {});
+  res.json({ success: true });
+});
+
+// ============================================================================
+// STUDENT ROUTES
+// ============================================================================
+
+// Helper: Calculate student stats
+const getStudentStats = async (studentId) => {
+  const db = getDb();
+
+  const lowFlights = await db.prepare(
+    'SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ? AND flight_type = ?'
+  ).get(studentId, 'low');
+
+  const highFlights = await db.prepare(
+    'SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ? AND flight_type = ?'
+  ).get(studentId, 'high');
+
+  const highDays = await db.prepare(
+    'SELECT COUNT(DISTINCT date) as count FROM flights WHERE student_id = ? AND flight_type = ?'
+  ).get(studentId, 'high');
+
+  const totalFlights = await db.prepare(
+    'SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ?'
+  ).get(studentId);
+
+  const lastFlight = await db.prepare(
+    'SELECT date FROM flights WHERE student_id = ? ORDER BY date DESC LIMIT 1'
+  ).get(studentId);
+
+  const hasApproval = await db.prepare(
+    'SELECT COUNT(*) as count FROM flights WHERE student_id = ? AND is_approval_flight = 1'
+  ).get(studentId);
+
+  // PP2 exam status
+  const pp2Exam = await db.prepare(
+    'SELECT pp2_exam_passed FROM users WHERE id = ?'
+  ).get(studentId);
+
+  // Theory counts
+  const theoryPp1 = await db.prepare(
+    "SELECT COUNT(*) as count FROM theory_completions WHERE student_id = ? AND topic_key LIKE 'pp1_%'"
+  ).get(studentId);
+
+  const theoryPp2 = await db.prepare(
+    "SELECT COUNT(*) as count FROM theory_completions WHERE student_id = ? AND topic_key LIKE 'pp2_%'"
+  ).get(studentId);
+
+  return {
+    low_flights: parseInt(lowFlights.count),
+    high_flights: parseInt(highFlights.count),
+    high_days: parseInt(highDays.count),
+    total_flights: parseInt(totalFlights.count),
+    last_flight_date: lastFlight ? lastFlight.date : null,
+    has_approval: parseInt(hasApproval.count) > 0,
+    pp2_exam_passed: pp2Exam ? pp2Exam.pp2_exam_passed : 0,
+    theory_pp1: parseInt(theoryPp1.count),
+    theory_pp2: parseInt(theoryPp2.count)
+  };
+};
+
+// GET /api/students
+app.get('/api/students', requireAuth, requireInstructor, async (req, res) => {
+  const { status = 'all', club_id } = req.query;
+  const db = getDb();
+  const user = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+
+  let query = 'SELECT id, username, name, email, phone, status, pp2_exam_passed, course_started, student_notes, created_at, club_id FROM users WHERE role = ?';
+  const params = ['student'];
+
+  if (status !== 'all') {
+    query += ' AND status = ?';
+    params.push(status);
+  }
+
+  // Instructor sees only their club; admin can filter by club_id param
+  if (user.role === 'instructor') {
+    query += ' AND club_id = ?';
+    params.push(user.club_id);
+  } else if (user.role === 'admin' && club_id) {
+    query += ' AND club_id = ?';
+    params.push(club_id);
+  }
+
+  query += ' ORDER BY name ASC';
+
+  const students = await db.prepare(query).all(...params);
+
+  const result = [];
+  for (const student of students) {
+    const stats = await getStudentStats(student.id);
+    result.push({ ...student, ...stats });
+  }
+
+  res.json({ students: result });
+});
+
+// POST /api/students
+app.post('/api/students', requireAuth, requireInstructor, async (req, res) => {
+  const { name, email, phone, username, password, course_started, status } = req.body;
+
+  if (!name || !email || !username || !password) {
+    return res.status(400).json({ error: 'Name, email, username, and password required' });
+  }
+
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  const db = getDb();
+
+  const existingUser = await db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(username, email);
+  if (existingUser) {
+    return res.status(400).json({ error: 'Username or email already exists' });
+  }
+
+  const hashedPassword = bcrypt.hashSync(password, 12);
+  const instructorClubId = await getUserClubId(req);
+
+  const userResult = await db.prepare(
+    'INSERT INTO users (username, email, name, password_hash, phone, role, status, pp2_exam_passed, course_started, student_notes, club_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(username, email, name, hashedPassword, phone || null, 'student', status || 'ongoing', 0, course_started || new Date().toISOString().split('T')[0], '', instructorClubId);
+
+  await logAction(req.session.userId, 'CREATE', 'student', userResult.lastInsertRowid, { name, email });
+
+  const student = await db.prepare('SELECT * FROM users WHERE id = ?').get(userResult.lastInsertRowid);
+  const stats = await getStudentStats(student.id);
+
+  res.status(201).json({ ...student, ...stats });
+});
+
+// GET /api/students/:id
+app.get('/api/students/:id', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  // Access control: students can only view their own profile
+  const requestingUser = await db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+  if (requestingUser.role === 'student' && req.session.userId !== parseInt(id)) {
+    return res.status(403).json({ error: 'Not authorized to view this student' });
+  }
+
+  // Never return password_hash â use explicit column list
+  const student = await db.prepare(
+    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, course_started, student_notes, created_at FROM users WHERE id = ? AND role = ?'
+  ).get(id, 'student');
+
+  if (!student) {
+    return res.status(404).json({ error: 'Student not found' });
+  }
+
+  const stats = await getStudentStats(student.id);
+  res.json({ ...student, ...stats });
+});
+
+// PUT /api/students/:id
+app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const { name, email, phone, status, pp2_exam_passed, course_started, student_notes } = req.body;
+
+  const db = getDb();
+  const student = await db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(id, 'student');
+
+  if (!student) {
+    return res.status(404).json({ error: 'Student not found' });
+  }
+
+  // Validate: cannot set status to 'completed' without pp2_exam_passed
+  if (status === 'completed') {
+    const examPassed = pp2_exam_passed !== undefined ? pp2_exam_passed : student.pp2_exam_passed;
+    if (!examPassed) {
+      return res.status(400).json({ error: 'PP2-koe tÃ¤ytyy olla suoritettu ennen valmistumista' });
+    }
+  }
+
+  const updates = [];
+  const values = [];
+
+  if (name !== undefined) { updates.push('name = ?'); values.push(name); }
+  if (email !== undefined) { updates.push('email = ?'); values.push(email); }
+  if (phone !== undefined) { updates.push('phone = ?'); values.push(phone); }
+  if (status !== undefined) { updates.push('status = ?'); values.push(status); }
+  if (pp2_exam_passed !== undefined) { updates.push('pp2_exam_passed = ?'); values.push(pp2_exam_passed ? 1 : 0); }
+  if (course_started !== undefined) { updates.push('course_started = ?'); values.push(course_started); }
+  if (student_notes !== undefined) { updates.push('student_notes = ?'); values.push(student_notes); }
+
+  if (updates.length > 0) {
+    values.push(id);
+    const query = `UPDATE users SET ${updates.join(', ')} WHERE id = ?`;
+    await db.prepare(query).run(...values);
+  }
+
+  await logAction(req.session.userId, 'UPDATE', 'student', id, { fields: Object.keys(req.body) });
+
+  const updated = await db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  const stats = await getStudentStats(updated.id);
+
+  res.json({ ...updated, ...stats });
+});
+
+// DELETE /api/students/:id
+app.delete('/api/students/:id', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const student = await db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(id, 'student');
+
+  if (!student) {
+    return res.status(404).json({ error: 'Student not found' });
+  }
+
+  await db.prepare('DELETE FROM users WHERE id = ?').run(id);
+
+  await logAction(req.session.userId, 'DELETE', 'student', id, {});
+
+  res.json({ success: true });
+});
+
+// ============================================================================
+// FLIGHT ROUTES
+// ============================================================================
+
+// GET /api/students/:id/flights
+app.get('/api/students/:id/flights', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { type = 'all', sort = 'desc' } = req.query;
+
+  const db = getDb();
+
+  let query = `
+    SELECT f.*, s.name as site_name
+    FROM flights f
+    LEFT JOIN sites s ON f.site_id = s.id
+    WHERE f.student_id = ?
+  `;
+  const params = [id];
+
+  if (type !== 'all') {
+    query += ' AND f.flight_type = ?';
+    params.push(type);
+  }
+
+  query += ` ORDER BY f.date ${sort === 'asc' ? 'ASC' : 'DESC'}`;
+
+  const flights = await db.prepare(query).all(...params);
+
+  // Include student stats
+  const stats = await getStudentStats(id);
+  res.json({ student: stats, flights });
+});
+
+// POST /api/students/:id/flights
+app.post('/api/students/:id/flights', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const { date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight } = req.body;
+
+  const db = getDb();
+  const student = await db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(id, 'student');
+
+  if (!student) {
+    return res.status(404).json({ error: 'Student not found' });
+  }
+
+  // Check authorization: instructor or student adding their own flight
+  const requestingUser = await db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+  const isInstructor = requestingUser?.role === 'instructor';
+  const isOwnFlight = parseInt(id) === req.session.userId;
+
+  if (!isInstructor && !isOwnFlight) {
+    return res.status(403).json({ error: 'You can only add flights for your own account' });
+  }
+
+  if (!date || flight_count === undefined || !flight_type) {
+    return res.status(400).json({ error: 'Date, flight_count, and flight_type required' });
+  }
+
+  const result = await db.prepare(`
+    INSERT INTO flights (student_id, date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight, added_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, date, flight_count, flight_type, site_id || null, weather || null, exercises || null, notes || null, is_approval_flight ? 1 : 0, req.session.userId);
+
+  await logAction(req.session.userId, 'CREATE', 'flight', result.lastInsertRowid, { student_id: id, flight_type });
+
+  const flight = await db.prepare(`
+    SELECT f.*, s.name as site_name
+    FROM flights f
+    LEFT JOIN sites s ON f.site_id = s.id
+    WHERE f.id = ?
+  `).get(result.lastInsertRowid);
+
+  res.status(201).json(flight);
+});
+
+// PUT /api/flights/:id
+app.put('/api/flights/:id', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const flight = await db.prepare('SELECT * FROM flights WHERE id = ?').get(id);
+
+  if (!flight) {
+    return res.status(404).json({ error: 'Flight not found' });
+  }
+
+  // Check authorization: instructor or student editing their own flight
+  const student = await db.prepare('SELECT id FROM users WHERE id = ?').get(flight.student_id);
+  const requestingUser = await db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+  const isInstructor = requestingUser?.role === 'instructor';
+  const isOwnFlight = student?.id === req.session.userId;
+
+  if (!isInstructor && !isOwnFlight) {
+    return res.status(403).json({ error: 'Not authorized to edit this flight' });
+  }
+
+  const { date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight } = req.body;
+
+  const updates = [];
+  const values = [];
+
+  if (date !== undefined) { updates.push('date = ?'); values.push(date); }
+  if (flight_count !== undefined) { updates.push('flight_count = ?'); values.push(flight_count); }
+  if (flight_type !== undefined) { updates.push('flight_type = ?'); values.push(flight_type); }
+  if (site_id !== undefined) { updates.push('site_id = ?'); values.push(site_id); }
+  if (weather !== undefined) { updates.push('weather = ?'); values.push(weather); }
+  if (exercises !== undefined) { updates.push('exercises = ?'); values.push(exercises); }
+  if (notes !== undefined) { updates.push('notes = ?'); values.push(notes); }
+  if (is_approval_flight !== undefined) { updates.push('is_approval_flight = ?'); values.push(is_approval_flight ? 1 : 0); }
+
+  if (updates.length > 0) {
+    values.push(id);
+    const query = `UPDATE flights SET ${updates.join(', ')} WHERE id = ?`;
+    await db.prepare(query).run(...values);
+  }
+
+  await logAction(req.session.userId, 'UPDATE', 'flight', id, { fields: Object.keys(req.body) });
+
+  const updated = await db.prepare(`
+    SELECT f.*, s.name as site_name
+    FROM flights f
+    LEFT JOIN sites s ON f.site_id = s.id
+    WHERE f.id = ?
+  `).get(id);
+
+  res.json(updated);
+});
+
+// DELETE /api/flights/:id
+app.delete('/api/flights/:id', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const flight = await db.prepare('SELECT * FROM flights WHERE id = ?').get(id);
+
+  if (!flight) {
+    return res.status(404).json({ error: 'Flight not found' });
+  }
+
+  await db.prepare('DELETE FROM flights WHERE id = ?').run(id);
+
+  await logAction(req.session.userId, 'DELETE', 'flight', id, {});
+
+  res.json({ success: true });
+});
+
+// ============================================================================
+// THEORY ROUTES
+// ============================================================================
+
+// GET /api/students/:id/theory
+app.get('/api/students/:id/theory', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const completions = await db.prepare(
+    'SELECT topic_key FROM theory_completions WHERE student_id = ?'
+  ).all(id);
+
+  res.json({ completions: completions.map(c => c.topic_key) });
+});
+
+// POST /api/students/:id/theory
+app.post('/api/students/:id/theory', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const { topic_key } = req.body;
+
+  if (!topic_key) {
+    return res.status(400).json({ error: 'topic_key required' });
+  }
+
+  const db = getDb();
+
+  await db.prepare(
+    'INSERT OR IGNORE INTO theory_completions (student_id, topic_key, completed_by) VALUES (?, ?, ?)'
+  ).run(id, topic_key, req.session.userId);
+
+  await logAction(req.session.userId, 'CREATE', 'theory_completion', id, { topic_key });
+
+  res.json({ success: true });
+});
+
+// DELETE /api/students/:id/theory/:topic_key
+app.delete('/api/students/:id/theory/:topic_key', requireAuth, requireInstructor, async (req, res) => {
+  const { id, topic_key } = req.params;
+  const db = getDb();
+
+  await db.prepare(
+    'DELETE FROM theory_completions WHERE student_id = ? AND topic_key = ?'
+  ).run(id, topic_key);
+
+  await logAction(req.session.userId, 'DELETE', 'theory_completion', id, { topic_key });
+
+  res.json({ success: true });
+});
+
+// ============================================================================
+// THEORY MANAGEMENT ROUTES (dynamic sections & topics)
+// ============================================================================
+
+// GET /api/theory/structure â returns full structure for frontend
+app.get('/api/theory/structure', requireAuth, async (req, res) => {
+  const db = getDb();
+
+  const sections = await db.prepare(
+    'SELECT * FROM theory_sections ORDER BY level, sort_order'
+  ).all();
+
+  const topics = await db.prepare(
+    'SELECT * FROM theory_topics_def ORDER BY section_id, sort_order'
+  ).all();
+
+  // Group topics by section
+  const topicsBySection = {};
+  topics.forEach(t => {
+    if (!topicsBySection[t.section_id]) topicsBySection[t.section_id] = [];
+    topicsBySection[t.section_id].push(t);
+  });
+
+  // Build structure grouped by level
+  const structure = { pp1: [], pp2: [] };
+  sections.forEach(s => {
+    const sectionTopics = topicsBySection[s.id] || [];
+    const totalDuration = sectionTopics.reduce((sum, t) => sum + (t.duration_minutes || 0), 0);
+    const entry = {
+      id: s.id,
+      key: s.key,
+      title: s.title,
+      sort_order: s.sort_order,
+      total_duration: totalDuration,
+      topics: sectionTopics.map(t => ({
+        id: t.id,
+        key: t.key,
+        title: t.title,
+        duration_minutes: t.duration_minutes,
+        comment: t.comment,
+        sort_order: t.sort_order
+      }))
+    };
+    if (structure[s.level]) {
+      structure[s.level].push(entry);
+    }
+  });
+
+  res.json(structure);
+});
+
+// GET /api/theory/sections â list all sections (admin only)
+app.get('/api/theory/sections', requireAuth, requireAdmin, async (req, res) => {
+  const db = getDb();
+  const sections = await db.prepare(
+    'SELECT * FROM theory_sections ORDER BY level, sort_order'
+  ).all();
+  res.json({ sections });
+});
+
+// POST /api/theory/sections â create a new section (admin only)
+app.post('/api/theory/sections', requireAuth, requireAdmin, async (req, res) => {
+  const { level, key, title } = req.body;
+  if (!level || !key || !title) {
+    return res.status(400).json({ error: 'level, key, and title are required' });
+  }
+  if (!['pp1', 'pp2'].includes(level)) {
+    return res.status(400).json({ error: 'level must be pp1 or pp2' });
+  }
+
+  const db = getDb();
+
+  // Get next sort_order for this level
+  const maxOrder = await db.prepare(
+    'SELECT MAX(sort_order) as max_order FROM theory_sections WHERE level = ?'
+  ).get(level);
+  const sortOrder = (maxOrder && maxOrder.max_order != null) ? maxOrder.max_order + 1 : 0;
+
+  try {
+    const result = await db.prepare(
+      'INSERT INTO theory_sections (level, key, title, sort_order) VALUES (?, ?, ?, ?)'
+    ).run(level, key, title, sortOrder);
+
+    await logAction(req.session.userId, 'CREATE', 'theory_section', result.lastInsertRowid, { level, key, title });
+    res.json({ id: result.lastInsertRowid, level, key, title, sort_order: sortOrder });
+  } catch (e) {
+    if (e.message && e.message.includes('unique')) {
+      return res.status(400).json({ error: 'Section key already exists' });
+    }
+    throw e;
+  }
+});
+
+// PUT /api/theory/sections/:id â update a section (admin only)
+app.put('/api/theory/sections/:id', requireAuth, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { title, sort_order } = req.body;
+  const db = getDb();
+
+  const section = await db.prepare('SELECT * FROM theory_sections WHERE id = ?').get(id);
+  if (!section) return res.status(404).json({ error: 'Section not found' });
+
+  const newTitle = title !== undefined ? title : section.title;
+  const newOrder = sort_order !== undefined ? sort_order : section.sort_order;
+
+  await db.prepare(
+    'UPDATE theory_sections SET title = ?, sort_order = ? WHERE id = ?'
+  ).run(newTitle, newOrder, id);
+
+  await logAction(req.session.userId, 'UPDATE', 'theory_section', id, { title: newTitle });
+  res.json({ success: true });
+});
+
+// DELETE /api/theory/sections/:id â delete a section, admin only (only if no topics)
+app.delete('/api/theory/sections/:id', requireAuth, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const topicCount = await db.prepare(
+    'SELECT COUNT(*) as count FROM theory_topics_def WHERE section_id = ?'
+  ).get(id);
+
+  if (parseInt(topicCount.count) > 0) {
+    return res.status(400).json({ error: `Aihealueella on ${topicCount.count} aihetta. Poista ensin aiheet.` });
+  }
+
+  await db.prepare('DELETE FROM theory_sections WHERE id = ?').run(id);
+  await logAction(req.session.userId, 'DELETE', 'theory_section', id, {});
+  res.json({ success: true });
+});
+
+// POST /api/theory/sections/:id/topics â create a topic in a section (admin only)
+app.post('/api/theory/sections/:sectionId/topics', requireAuth, requireAdmin, async (req, res) => {
+  const { sectionId } = req.params;
+  const { key, title, duration_minutes, comment } = req.body;
+
+  if (!key || !title) {
+    return res.status(400).json({ error: 'key and title are required' });
+  }
+
+  const db = getDb();
+
+  const section = await db.prepare('SELECT * FROM theory_sections WHERE id = ?').get(sectionId);
+  if (!section) return res.status(404).json({ error: 'Section not found' });
+
+  const maxOrder = await db.prepare(
+    'SELECT MAX(sort_order) as max_order FROM theory_topics_def WHERE section_id = ?'
+  ).get(sectionId);
+  const sortOrder = (maxOrder && maxOrder.max_order != null) ? maxOrder.max_order + 1 : 0;
+
+  try {
+    const result = await db.prepare(
+      'INSERT INTO theory_topics_def (section_id, key, title, duration_minutes, comment, sort_order) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(sectionId, key, title, duration_minutes || 45, comment || null, sortOrder);
+
+    await logAction(req.session.userId, 'CREATE', 'theory_topic', result.lastInsertRowid, { key, title, sectionId });
+    res.json({ id: result.lastInsertRowid, key, title, duration_minutes: duration_minutes || 45, comment: comment || null, sort_order: sortOrder });
+  } catch (e) {
+    if (e.message && e.message.includes('unique')) {
+      return res.status(400).json({ error: 'Topic key already exists' });
+    }
+    throw e;
+  }
+});
+
+// PUT /api/theory/topics/:id â update a topic (admin only)
+app.put('/api/theory/topics/:id', requireAuth, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { title, duration_minutes, comment, sort_order } = req.body;
+  const db = getDb();
+
+  const topic = await db.prepare('SELECT * FROM theory_topics_def WHERE id = ?').get(id);
+  if (!topic) return res.status(404).json({ error: 'Topic not found' });
+
+  const newTitle = title !== undefined ? title : topic.title;
+  const newDuration = duration_minutes !== undefined ? duration_minutes : topic.duration_minutes;
+  const newComment = comment !== undefined ? comment : topic.comment;
+  const newOrder = sort_order !== undefined ? sort_order : topic.sort_order;
+
+  await db.prepare(
+    'UPDATE theory_topics_def SET title = ?, duration_minutes = ?, comment = ?, sort_order = ? WHERE id = ?'
+  ).run(newTitle, newDuration, newComment, newOrder, id);
+
+  await logAction(req.session.userId, 'UPDATE', 'theory_topic', id, { title: newTitle, duration_minutes: newDuration });
+  res.json({ success: true });
+});
+
+// DELETE /api/theory/topics/:id â delete a topic, admin only (only if no completions)
+app.delete('/api/theory/topics/:id', requireAuth, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const topic = await db.prepare('SELECT * FROM theory_topics_def WHERE id = ?').get(id);
+  if (!topic) return res.status(404).json({ error: 'Topic not found' });
+
+  const completions = await db.prepare(
+    'SELECT COUNT(*) as count FROM theory_completions WHERE topic_key = ?'
+  ).get(topic.key);
+
+  if (parseInt(completions.count) > 0) {
+    return res.status(400).json({ error: `Aiheella on ${completions.count} suoritusta. Poista ensin suoritukset.` });
+  }
+
+  await db.prepare('DELETE FROM theory_topics_def WHERE id = ?').run(id);
+  await logAction(req.session.userId, 'DELETE', 'theory_topic', id, { key: topic.key });
+  res.json({ success: true });
+});
+
+// ============================================================================
+// LESSON ROUTES
+// ============================================================================
+
+// GET /api/lessons
+app.get('/api/lessons', requireAuth, requireInstructor, async (req, res) => {
+  const db = getDb();
+  const user = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+
+  let query = `
+    SELECT
+      l.*,
+      COUNT(DISTINCT ls.student_id) as student_count,
+      COUNT(DISTINCT lt.topic_key) as topic_count
+    FROM lessons l
+    LEFT JOIN lesson_students ls ON l.id = ls.lesson_id
+    LEFT JOIN lesson_topics lt ON l.id = lt.lesson_id
+    LEFT JOIN users u ON l.instructor_id = u.id
+  `;
+  const params = [];
+
+  // Filter by club for instructors
+  if (user.role === 'instructor') {
+    query += ' WHERE u.club_id = ?';
+    params.push(user.club_id);
+  }
+
+  query += ' GROUP BY l.id ORDER BY l.date DESC';
+
+  const lessons = await db.prepare(query).all(...params);
+
+  // Add instructor name
+  const lessonsWithNames = [];
+  for (const l of lessons) {
+    const instructor = await db.prepare('SELECT name FROM users WHERE id = ?').get(l.instructor_id);
+    lessonsWithNames.push({ ...l, instructor_name: instructor ? instructor.name : '' });
+  }
+
+  res.json({ lessons: lessonsWithNames });
+});
+
+// POST /api/lessons
+app.post('/api/lessons', requireAuth, requireInstructor, async (req, res) => {
+  const { date, topic_keys = [], student_ids = [], notes } = req.body;
+
+  if (!date) {
+    return res.status(400).json({ error: 'Date required' });
+  }
+
+  const db = getDb();
+  const client = await db.getClient();
+
+  try {
+    await client.query('BEGIN');
+
+    const lessonRes = await client.query(
+      'INSERT INTO lessons (date, instructor_id, notes) VALUES ($1, $2, $3) RETURNING id',
+      [date, req.session.userId, notes || null]
+    );
+    const lessonId = lessonRes.rows[0].id;
+
+    for (const studentId of student_ids) {
+      await client.query('INSERT INTO lesson_students (lesson_id, student_id) VALUES ($1, $2)', [lessonId, studentId]);
+    }
+
+    for (const topicKey of topic_keys) {
+      await client.query('INSERT INTO lesson_topics (lesson_id, topic_key) VALUES ($1, $2)', [lessonId, topicKey]);
+
+      // Mark theory completions for all students in this lesson
+      for (const studentId of student_ids) {
+        await client.query(
+          'INSERT INTO theory_completions (student_id, topic_key, completed_by, lesson_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+          [studentId, topicKey, req.session.userId, lessonId]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+
+    await logAction(req.session.userId, 'CREATE', 'lesson', lessonId, {
+      student_count: student_ids.length,
+      topic_count: topic_keys.length
+    });
+
+    const lesson = await db.prepare(`
+      SELECT
+        l.*,
+        COUNT(DISTINCT ls.student_id) as student_count,
+        COUNT(DISTINCT lt.topic_key) as topic_count
+      FROM lessons l
+      LEFT JOIN lesson_students ls ON l.id = ls.lesson_id
+      LEFT JOIN lesson_topics lt ON l.id = lt.lesson_id
+      WHERE l.id = ?
+      GROUP BY l.id
+    `).get(lessonId);
+
+    res.status(201).json(lesson);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// GET /api/lessons/:id
+app.get('/api/lessons/:id', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const lesson = await db.prepare('SELECT * FROM lessons WHERE id = ?').get(id);
+
+  if (!lesson) {
+    return res.status(404).json({ error: 'Lesson not found' });
+  }
+
+  const studentRows = await db.prepare('SELECT student_id FROM lesson_students WHERE lesson_id = ?').all(id);
+  const topics = await db.prepare('SELECT topic_key FROM lesson_topics WHERE lesson_id = ?').all(id);
+
+  // Get student names
+  const studentNames = [];
+  for (const s of studentRows) {
+    const u = await db.prepare('SELECT name FROM users WHERE id = ?').get(s.student_id);
+    studentNames.push(u ? u.name : 'Tuntematon');
+  }
+
+  // Get instructor name
+  const instructor = await db.prepare('SELECT name FROM users WHERE id = ?').get(lesson.instructor_id);
+
+  res.json({
+    lesson: {
+      ...lesson,
+      instructor_name: instructor ? instructor.name : '',
+      student_count: studentRows.length,
+      topic_count: topics.length
+    },
+    student_ids: studentRows.map(s => s.student_id),
+    student_names: studentNames,
+    topic_keys: topics.map(t => t.topic_key)
+  });
+});
+
+// PUT /api/lessons/:id
+app.put('/api/lessons/:id', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const { date, notes, student_ids = [], topic_keys = [] } = req.body;
+
+  const db = getDb();
+  const lesson = await db.prepare('SELECT * FROM lessons WHERE id = ?').get(id);
+
+  if (!lesson) {
+    return res.status(404).json({ error: 'Lesson not found' });
+  }
+
+  const client = await db.getClient();
+
+  try {
+    await client.query('BEGIN');
+
+    if (date !== undefined || notes !== undefined) {
+      const updates = [];
+      const values = [];
+      let paramIdx = 1;
+      if (date !== undefined) { updates.push(`date = $${paramIdx++}`); values.push(date); }
+      if (notes !== undefined) { updates.push(`notes = $${paramIdx++}`); values.push(notes); }
+      values.push(id);
+      const query = `UPDATE lessons SET ${updates.join(', ')} WHERE id = $${paramIdx}`;
+      await client.query(query, values);
+    }
+
+    // Update lesson_students
+    await client.query('DELETE FROM lesson_students WHERE lesson_id = $1', [id]);
+    for (const studentId of student_ids) {
+      await client.query('INSERT INTO lesson_students (lesson_id, student_id) VALUES ($1, $2)', [id, studentId]);
+    }
+
+    // Update lesson_topics and theory_completions
+    await client.query('DELETE FROM lesson_topics WHERE lesson_id = $1', [id]);
+    await client.query('UPDATE theory_completions SET lesson_id = NULL WHERE lesson_id = $1', [id]);
+
+    for (const topicKey of topic_keys) {
+      await client.query('INSERT INTO lesson_topics (lesson_id, topic_key) VALUES ($1, $2)', [id, topicKey]);
+
+      for (const studentId of student_ids) {
+        await client.query(
+          'INSERT INTO theory_completions (student_id, topic_key, completed_by, lesson_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+          [studentId, topicKey, req.session.userId, id]
+        );
+      }
+    }
+
+    await client.query('COMMIT');
+
+    await logAction(req.session.userId, 'UPDATE', 'lesson', id, {
+      fields: Object.keys(req.body)
+    });
+
+    const updated = await db.prepare(`
+      SELECT
+        l.*,
+        COUNT(DISTINCT ls.student_id) as student_count,
+        COUNT(DISTINCT lt.topic_key) as topic_count
+      FROM lessons l
+      LEFT JOIN lesson_students ls ON l.id = ls.lesson_id
+      LEFT JOIN lesson_topics lt ON l.id = lt.lesson_id
+      WHERE l.id = ?
+      GROUP BY l.id
+    `).get(id);
+
+    res.json(updated);
+  } catch (error) {
+    await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  } finally {
+    client.release();
+  }
+});
+
+// DELETE /api/lessons/:id
+app.delete('/api/lessons/:id', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const lesson = await db.prepare('SELECT * FROM lessons WHERE id = ?').get(id);
+
+  if (!lesson) {
+    return res.status(404).json({ error: 'Lesson not found' });
+  }
+
+  await db.prepare('DELETE FROM lessons WHERE id = ?').run(id);
+
+  await logAction(req.session.userId, 'DELETE', 'lesson', id, {});
+
+  res.json({ success: true });
+});
+
+// ============================================================================
+// SITE ROUTES
+// ============================================================================
+
+// GET /api/sites
+app.get('/api/sites', requireAuth, async (req, res) => {
+  const db = getDb();
+  const user = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+
+  let query = 'SELECT * FROM sites';
+  const params = [];
+
+  // Instructor and student see only their club's sites; admin can filter by club_id param
+  if (user.role === 'instructor' || user.role === 'student') {
+    query += ' WHERE club_id = ?';
+    params.push(user.club_id);
+  } else if (user.role === 'admin' && req.query.club_id) {
+    query += ' WHERE club_id = ?';
+    params.push(req.query.club_id);
+  }
+
+  query += ' ORDER BY name ASC';
+
+  const sites = await db.prepare(query).all(...params);
+  res.json({ sites });
+});
+
+// POST /api/sites
+app.post('/api/sites', requireAuth, requireInstructor, async (req, res) => {
+  const { name, description, club_id } = req.body;
+
+  if (!name) {
+    return res.status(400).json({ error: 'Name required' });
+  }
+
+  const db = getDb();
+  const requestingUser = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+  let siteClubId;
+
+  if (requestingUser.role === 'admin') {
+    // Admin must provide club_id, or use the first club as default
+    const firstClub = await db.prepare('SELECT id FROM clubs LIMIT 1').get();
+    siteClubId = club_id || (firstClub ? firstClub.id : null);
+    if (!siteClubId) {
+      return res.status(400).json({ error: 'club_id required (no clubs exist)' });
+    }
+  } else {
+    siteClubId = requestingUser.club_id;
+  }
+
+  const result = await db.prepare('INSERT INTO sites (name, description, club_id) VALUES (?, ?, ?)').run(name, description || null, siteClubId);
+
+  await logAction(req.session.userId, 'CREATE', 'site', result.lastInsertRowid, { name });
+
+  const site = await db.prepare('SELECT * FROM sites WHERE id = ?').get(result.lastInsertRowid);
+  res.status(201).json(site);
+});
+
+// PUT /api/sites/:id
+app.put('/api/sites/:id', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const { name, description } = req.body;
+
+  const db = getDb();
+  const site = await db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
+
+  if (!site) {
+    return res.status(404).json({ error: 'Site not found' });
+  }
+
+  const updates = [];
+  const values = [];
+
+  if (name !== undefined) { updates.push('name = ?'); values.push(name); }
+  if (description !== undefined) { updates.push('description = ?'); values.push(description); }
+
+  if (updates.length > 0) {
+    values.push(id);
+    const query = `UPDATE sites SET ${updates.join(', ')} WHERE id = ?`;
+    await db.prepare(query).run(...values);
+  }
+
+  await logAction(req.session.userId, 'UPDATE', 'site', id, { fields: Object.keys(req.body) });
+
+  const updated = await db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
+  res.json(updated);
+});
+
+// DELETE /api/sites/:id
+app.delete('/api/sites/:id', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const site = await db.prepare('SELECT * FROM sites WHERE id = ?').get(id);
+
+  if (!site) {
+    return res.status(404).json({ error: 'Site not found' });
+  }
+
+  const flightCount = await db.prepare('SELECT COUNT(*) as count FROM flights WHERE site_id = ?').get(id);
+
+  if (parseInt(flightCount.count) > 0) {
+    return res.status(400).json({ error: 'Cannot delete site with flights' });
+  }
+
+  await db.prepare('DELETE FROM sites WHERE id = ?').run(id);
+
+  await logAction(req.session.userId, 'DELETE', 'site', id, {});
+
+  res.json({ success: true });
+});
+
+// ============================================================================
+// ATTACHMENT ROUTES
+// ============================================================================
+
+// GET /api/students/:id/attachments
+app.get('/api/students/:id/attachments', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const attachments = await db.prepare(
+    'SELECT id, student_id, filename, stored_name, size_bytes, mimetype, created_at FROM attachments WHERE student_id = ?'
+  ).all(id);
+
+  res.json({ attachments });
+});
+
+// POST /api/students/:id/attachments
+app.post('/api/students/:id/attachments', requireAuth, requireInstructor, upload.single('file'), async (req, res) => {
+  const { id } = req.params;
+
+  if (!req.file) {
+    return res.status(400).json({ error: 'File required' });
+  }
+
+  const db = getDb();
+  const student = await db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(id, 'student');
+
+  if (!student) {
+    return res.status(404).json({ error: 'Student not found' });
+  }
+
+  const result = await db.prepare(
+    'INSERT INTO attachments (student_id, filename, stored_name, mimetype, size_bytes, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, req.file.originalname, req.file.filename, req.file.mimetype, req.file.size, req.session.userId);
+
+  await logAction(req.session.userId, 'CREATE', 'attachment', result.lastInsertRowid, {
+    student_id: id,
+    filename: req.file.originalname
+  });
+
+  const attachment = await db.prepare(
+    'SELECT id, student_id, filename, stored_name, created_at FROM attachments WHERE id = ?'
+  ).get(result.lastInsertRowid);
+
+  res.status(201).json(attachment);
+});
+
+// GET /api/attachments/:id/download
+app.get('/api/attachments/:id/download', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const attachment = await db.prepare('SELECT * FROM attachments WHERE id = ?').get(id);
+
+  if (!attachment) {
+    return res.status(404).json({ error: 'Attachment not found' });
+  }
+
+  const filepath = path.join(UPLOAD_DIR, attachment.stored_name);
+
+  if (!fs.existsSync(filepath)) {
+    return res.status(404).json({ error: 'File not found' });
+  }
+
+  await logAction(req.session.userId, 'READ', 'attachment', id, { filename: attachment.filename });
+
+  res.download(filepath, attachment.filename);
+});
+
+// DELETE /api/attachments/:id
+app.delete('/api/attachments/:id', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const attachment = await db.prepare('SELECT * FROM attachments WHERE id = ?').get(id);
+
+  if (!attachment) {
+    return res.status(404).json({ error: 'Attachment not found' });
+  }
+
+  const filepath = path.join(UPLOAD_DIR, attachment.stored_name);
+
+  try {
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+    }
+  } catch (error) {
+    console.error('Error deleting file:', error);
+  }
+
+  await db.prepare('DELETE FROM attachments WHERE id = ?').run(id);
+
+  await logAction(req.session.userId, 'DELETE', 'attachment', id, {});
+
+  res.json({ success: true });
+});
+
+// ============================================================================
+// EQUIPMENT ROUTES
+// ============================================================================
+
+// GET /api/students/:id/equipment
+app.get('/api/students/:id/equipment', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const student = await db.prepare('SELECT id FROM users WHERE id = ? AND role = ?').get(id, 'student');
+  if (!student) {
+    return res.status(404).json({ error: 'Student not found' });
+  }
+
+  const equipment = await db.prepare('SELECT * FROM equipment WHERE student_id = ?').get(id);
+
+  if (equipment) {
+    res.json(equipment);
+  } else {
+    // Return empty defaults
+    res.json({
+      student_id: parseInt(id),
+      wing_manufacturer: '',
+      wing_model: '',
+      wing_size: '',
+      wing_year: null,
+      wing_club_owned: 0,
+      harness_manufacturer: '',
+      harness_model: '',
+      harness_club_owned: 0,
+      reserve_manufacturer: '',
+      reserve_model: '',
+      reserve_size: '',
+      reserve_pack_date: null,
+      reserve_club_owned: 0
+    });
+  }
+});
+
+// PUT /api/students/:id/equipment
+app.put('/api/students/:id/equipment', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const {
+    wing_manufacturer, wing_model, wing_size, wing_year, wing_club_owned,
+    harness_manufacturer, harness_model, harness_club_owned,
+    reserve_manufacturer, reserve_model, reserve_size, reserve_pack_date, reserve_club_owned
+  } = req.body;
+
+  const db = getDb();
+
+  const student = await db.prepare('SELECT id FROM users WHERE id = ? AND role = ?').get(id, 'student');
+  if (!student) {
+    return res.status(404).json({ error: 'Student not found' });
+  }
+
+  // Check authorization: student can edit own equipment, instructor/admin can edit any
+  const user = await db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+  if (user.role === 'student' && req.session.userId !== parseInt(id)) {
+    return res.status(403).json({ error: 'Not authorized to edit this equipment' });
+  }
+
+  const existing = await db.prepare('SELECT id FROM equipment WHERE student_id = ?').get(id);
+
+  if (existing) {
+    // Update existing
+    const updates = [];
+    const values = [];
+
+    if (wing_manufacturer !== undefined) { updates.push('wing_manufacturer = ?'); values.push(wing_manufacturer || ''); }
+    if (wing_model !== undefined) { updates.push('wing_model = ?'); values.push(wing_model || ''); }
+    if (wing_size !== undefined) { updates.push('wing_size = ?'); values.push(wing_size || ''); }
+    if (wing_year !== undefined) { updates.push('wing_year = ?'); values.push(wing_year); }
+    if (wing_club_owned !== undefined) { updates.push('wing_club_owned = ?'); values.push(wing_club_owned ? 1 : 0); }
+    if (harness_manufacturer !== undefined) { updates.push('harness_manufacturer = ?'); values.push(harness_manufacturer || ''); }
+    if (harness_model !== undefined) { updates.push('harness_model = ?'); values.push(harness_model || ''); }
+    if (harness_club_owned !== undefined) { updates.push('harness_club_owned = ?'); values.push(harness_club_owned ? 1 : 0); }
+    if (reserve_manufacturer !== undefined) { updates.push('reserve_manufacturer = ?'); values.push(reserve_manufacturer || ''); }
+    if (reserve_model !== undefined) { updates.push('reserve_model = ?'); values.push(reserve_model || ''); }
+    if (reserve_size !== undefined) { updates.push('reserve_size = ?'); values.push(reserve_size || ''); }
+    if (reserve_pack_date !== undefined) { updates.push('reserve_pack_date = ?'); values.push(reserve_pack_date); }
+    if (reserve_club_owned !== undefined) { updates.push('reserve_club_owned = ?'); values.push(reserve_club_owned ? 1 : 0); }
+
+    updates.push('updated_at = ?');
+    values.push(new Date().toISOString());
+    values.push(id);
+
+    const query = `UPDATE equipment SET ${updates.join(', ')} WHERE student_id = ?`;
+    await db.prepare(query).run(...values);
+  } else {
+    // Insert new
+    await db.prepare(
+      'INSERT INTO equipment (student_id, wing_manufacturer, wing_model, wing_size, wing_year, wing_club_owned, harness_manufacturer, harness_model, harness_club_owned, reserve_manufacturer, reserve_model, reserve_size, reserve_pack_date, reserve_club_owned, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    ).run(
+      id,
+      wing_manufacturer || '', wing_model || '', wing_size || '', wing_year || null, wing_club_owned ? 1 : 0,
+      harness_manufacturer || '', harness_model || '', harness_club_owned ? 1 : 0,
+      reserve_manufacturer || '', reserve_model || '', reserve_size || '', reserve_pack_date || null, reserve_club_owned ? 1 : 0,
+      new Date().toISOString()
+    );
+  }
+
+  await logAction(req.session.userId, 'UPDATE', 'equipment', id, { student_id: id });
+
+  const updated = await db.prepare('SELECT * FROM equipment WHERE student_id = ?').get(id);
+  res.json(updated);
+});
+
+// ============================================================================
+// INSTRUCTOR ROUTES
+// ============================================================================
+
+// GET /api/instructors
+app.get('/api/instructors', requireAuth, requireInstructor, async (req, res) => {
+  const db = getDb();
+  const user = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+
+  let query = `SELECT u.id, u.username, u.email, u.name, u.phone, u.club_id, c.name as club_name
+    FROM users u LEFT JOIN clubs c ON u.club_id = c.id WHERE u.role = ?`;
+  const params = ['instructor'];
+
+  // Instructor sees only their club's instructors; admin can filter by club_id param
+  if (user.role === 'instructor') {
+    query += ' AND u.club_id = ?';
+    params.push(user.club_id);
+  } else if (user.role === 'admin' && req.query.club_id) {
+    query += ' AND u.club_id = ?';
+    params.push(req.query.club_id);
+  }
+
+  query += ' ORDER BY c.name ASC, u.name ASC';
+
+  const instructors = await db.prepare(query).all(...params);
+  res.json({ instructors });
+});
+
+// POST /api/instructors (admin or instructor in same club)
+app.post('/api/instructors', requireAuth, requireInstructor, async (req, res) => {
+  const { name, email, phone, username, password, club_id } = req.body;
+
+  if (!name || !email || !username || !password) {
+    return res.status(400).json({ error: 'Name, email, username, and password required' });
+  }
+
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  const db = getDb();
+  const currentUser = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+
+  // Determine target club_id
+  let targetClubId;
+  if (currentUser.role === 'admin') {
+    // Admin must specify club_id
+    if (!club_id) {
+      return res.status(400).json({ error: 'Club ID required for admin' });
+    }
+    targetClubId = club_id;
+  } else {
+    // Instructor: always assigns to own club
+    targetClubId = currentUser.club_id;
+  }
+
+  const existingUser = await db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(username, email);
+  if (existingUser) {
+    return res.status(400).json({ error: 'Username or email already exists' });
+  }
+
+  const hashedPassword = bcrypt.hashSync(password, 12);
+
+  const result = await db.prepare(
+    'INSERT INTO users (username, email, name, password_hash, phone, role, club_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  ).run(username, email, name, hashedPassword, phone || null, 'instructor', targetClubId);
+
+  await logAction(req.session.userId, 'CREATE', 'instructor', result.lastInsertRowid, { name, email });
+
+  const instructor = await db.prepare(
+    'SELECT id, username, email, name, phone, club_id FROM users WHERE id = ?'
+  ).get(result.lastInsertRowid);
+
+  res.status(201).json(instructor);
+});
+
+// DELETE /api/instructors/:id (admin or instructor in same club)
+app.delete('/api/instructors/:id', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const userId = req.session.userId;
+
+  if (id == userId) {
+    return res.status(400).json({ error: 'Cannot delete your own account' });
+  }
+
+  const db = getDb();
+  const currentUser = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(userId);
+  const instructor = await db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(id, 'instructor');
+
+  if (!instructor) {
+    return res.status(404).json({ error: 'Instructor not found' });
+  }
+
+  // Instructor can only delete instructors from their own club
+  if (currentUser.role === 'instructor' && instructor.club_id !== currentUser.club_id) {
+    return res.status(403).json({ error: 'Cannot delete instructor from another club' });
+  }
+
+  await db.prepare('DELETE FROM users WHERE id = ?').run(id);
+
+  await logAction(req.session.userId, 'DELETE', 'instructor', id, {});
+
+  res.json({ success: true });
+});
+
+// ============================================================================
+// CLUBS ROUTES (Admin only)
+// ============================================================================
+
+// GET /api/clubs
+app.get('/api/clubs', requireAuth, requireAdmin, async (req, res) => {
+  const db = getDb();
+  const clubs = await db.prepare('SELECT * FROM clubs ORDER BY name ASC').all();
+  res.json({ clubs });
+});
+
+// POST /api/clubs
+app.post('/api/clubs', requireAuth, requireAdmin, async (req, res) => {
+  const { club_name, club_slug, club_description, instructor_name, instructor_email, instructor_username, instructor_password } = req.body;
+
+  if (!club_name || !club_slug || !instructor_name || !instructor_email || !instructor_username || !instructor_password) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  if (instructor_password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+
+  const db = getDb();
+
+  // Check if club slug exists
+  const existingClub = await db.prepare('SELECT id FROM clubs WHERE slug = ?').get(club_slug);
+  if (existingClub) {
+    return res.status(400).json({ error: 'Club slug already exists' });
+  }
+
+  // Check if instructor username or email exists
+  const existingUser = await db.prepare('SELECT id FROM users WHERE username = ? OR email = ?').get(instructor_username, instructor_email);
+  if (existingUser) {
+    return res.status(400).json({ error: 'Username or email already exists' });
+  }
+
+  try {
+    // Create club
+    const clubResult = await db.prepare('INSERT INTO clubs (name, slug, description) VALUES (?, ?, ?)').run(
+      club_name, club_slug, club_description || ''
+    );
+    const clubId = clubResult.lastInsertRowid;
+
+    // Create first instructor for the club
+    const hashedPassword = bcrypt.hashSync(instructor_password, 12);
+    const instructorResult = await db.prepare(
+      'INSERT INTO users (username, email, name, password_hash, role, club_id) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(instructor_username, instructor_email, instructor_name, hashedPassword, 'instructor', clubId);
+
+    await logAction(req.session.userId, 'CREATE', 'club', clubId, { name: club_name, instructor_id: instructorResult.lastInsertRowid });
+
+    const club = await db.prepare('SELECT * FROM clubs WHERE id = ?').get(clubId);
+    res.status(201).json(club);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// PUT /api/clubs/:id
+app.put('/api/clubs/:id', requireAuth, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const { name, slug, description, is_active } = req.body;
+
+  const db = getDb();
+  const club = await db.prepare('SELECT * FROM clubs WHERE id = ?').get(id);
+
+  if (!club) {
+    return res.status(404).json({ error: 'Club not found' });
+  }
+
+  const updates = [];
+  const values = [];
+
+  if (name !== undefined) { updates.push('name = ?'); values.push(name); }
+  if (slug !== undefined) { updates.push('slug = ?'); values.push(slug); }
+  if (description !== undefined) { updates.push('description = ?'); values.push(description); }
+  if (is_active !== undefined) { updates.push('is_active = ?'); values.push(is_active ? 1 : 0); }
+
+  if (updates.length > 0) {
+    values.push(id);
+    const query = `UPDATE clubs SET ${updates.join(', ')} WHERE id = ?`;
+    await db.prepare(query).run(...values);
+  }
+
+  await logAction(req.session.userId, 'UPDATE', 'club', id, { fields: Object.keys(req.body) });
+
+  const updated = await db.prepare('SELECT * FROM clubs WHERE id = ?').get(id);
+  res.json(updated);
+});
+
+// DELETE /api/clubs/:id (soft delete)
+app.delete('/api/clubs/:id', requireAuth, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const club = await db.prepare('SELECT * FROM clubs WHERE id = ?').get(id);
+
+  if (!club) {
+    return res.status(404).json({ error: 'Club not found' });
+  }
+
+  await db.prepare('UPDATE clubs SET is_active = 0 WHERE id = ?').run(id);
+
+  await logAction(req.session.userId, 'DELETE', 'club', id, {});
+
+  res.json({ success: true });
+});
+
+// GET /api/clubs/:id/stats
+app.get('/api/clubs/:id/stats', requireAuth, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const club = await db.prepare('SELECT * FROM clubs WHERE id = ?').get(id);
+
+  if (!club) {
+    return res.status(404).json({ error: 'Club not found' });
+  }
+
+  const studentCount = await db.prepare('SELECT COUNT(*) as count FROM users WHERE club_id = ? AND role = ?').get(id, 'student');
+  const instructorCount = await db.prepare('SELECT COUNT(*) as count FROM users WHERE club_id = ? AND role = ?').get(id, 'instructor');
+  const siteCount = await db.prepare('SELECT COUNT(*) as count FROM sites WHERE club_id = ?').get(id);
+  const flightCount = await db.prepare('SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id IN (SELECT id FROM users WHERE club_id = ? AND role = ?)').get(id, 'student');
+
+  res.json({
+    club,
+    stats: {
+      students: parseInt(studentCount.count),
+      instructors: parseInt(instructorCount.count),
+      sites: parseInt(siteCount.count),
+      flights: parseInt(flightCount.count)
+    }
+  });
+});
+
+// ============================================================================
+// DASHBOARD ROUTE
+// ============================================================================
+
+// GET /api/dashboard
+app.get('/api/dashboard', requireAuth, requireInstructor, async (req, res) => {
+  const db = getDb();
+  const user = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+
+  // Build club filter (parameterized for safety)
+  let clubWhere = '';
+  const clubParams = [];
+  if (user.role === 'instructor') {
+    clubWhere = ' AND u.club_id = ?';
+    clubParams.push(user.club_id);
+  }
+
+  // Count stats
+  const activeStudents = await db.prepare(
+    `SELECT COUNT(*) as count FROM users u WHERE u.role = ? AND u.status = ?${clubWhere}`
+  ).get('student', 'ongoing', ...clubParams);
+
+  const graduatedStudents = await db.prepare(
+    `SELECT COUNT(*) as count FROM users u WHERE u.role = ? AND u.status = ?${clubWhere}`
+  ).get('student', 'completed', ...clubParams);
+
+  const totalFlights = await db.prepare(
+    `SELECT COALESCE(SUM(f.flight_count), 0) as count FROM flights f JOIN users u ON f.student_id = u.id WHERE 1=1${clubWhere}`
+  ).get(...clubParams);
+
+  const totalLessons = await db.prepare(
+    `SELECT COUNT(*) as count FROM lessons l JOIN users u ON l.instructor_id = u.id WHERE 1=1${clubWhere}`
+  ).get(...clubParams);
+
+  // Active students with stats and last_flight_date
+  const students = await db.prepare(`
+    SELECT u.id, u.username, u.name, u.email, u.phone, u.role, u.status,
+           u.pp2_exam_passed, u.course_started, u.student_notes, u.club_id, u.created_at
+    FROM users u
+    WHERE u.role = 'student' AND u.status = 'ongoing'${clubWhere}
+    ORDER BY u.name ASC
+  `).all(...clubParams);
+
+  const studentsWithStats = [];
+  for (const student of students) {
+    const stats = await getStudentStats(student.id);
+    studentsWithStats.push({ ...student, ...stats });
+  }
+
+  // Recent events (10 latest audit_log entries)
+  const events = await db.prepare(`
+    SELECT al.*, u.name as user_name
+    FROM audit_log al
+    LEFT JOIN users u ON al.user_id = u.id
+    WHERE 1=1${clubWhere}
+    ORDER BY al.timestamp DESC
+    LIMIT 10
+  `).all(...clubParams);
+
+  // Inactive warnings (students with no flight in 30+ days)
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const inactiveWarnings = await db.prepare(`
+    SELECT u.id, u.name, u.email, u.status,
+      (SELECT MAX(date) FROM flights WHERE student_id = u.id) as last_flight_date
+    FROM users u
+    WHERE u.role = 'student' AND u.status = 'ongoing'${clubWhere}
+    AND (
+      (SELECT MAX(date) FROM flights WHERE student_id = u.id) IS NULL
+      OR (SELECT MAX(date) FROM flights WHERE student_id = u.id) < ?
+    )
+  `).all(...clubParams, thirtyDaysAgo);
+
+  res.json({
+    stats: {
+      active_students: parseInt(activeStudents.count),
+      graduated_students: parseInt(graduatedStudents.count),
+      total_flights: parseInt(totalFlights.count),
+      total_lessons: parseInt(totalLessons.count)
+    },
+    students: studentsWithStats,
+    recent_events: events,
+    inactive_warnings: inactiveWarnings
+  });
+});
+
+// ============================================================================
+// AUDIT LOG ROUTE
+// ============================================================================
+
+// GET /api/audit-log
+app.get('/api/audit-log', requireAuth, requireInstructor, async (req, res) => {
+  const { user_id, entity_type, from, to, limit = 100 } = req.query;
+
+  const db = getDb();
+  const user = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
+
+  let query = 'SELECT al.*, u.name as user_name FROM audit_log al LEFT JOIN users u ON al.user_id = u.id WHERE 1=1';
+  const params = [];
+
+  // Filter by club for instructors
+  if (user.role === 'instructor') {
+    query += ' AND u.club_id = ?';
+    params.push(user.club_id);
+  }
+
+  if (user_id) {
+    query += ' AND al.user_id = ?';
+    params.push(user_id);
+  }
+
+  if (entity_type) {
+    query += ' AND al.entity_type = ?';
+    params.push(entity_type);
+  }
+
+  if (from) {
+    query += ' AND al.timestamp >= ?';
+    params.push(from);
+  }
+
+  if (to) {
+    query += ' AND al.timestamp <= ?';
+    params.push(to);
+  }
+
+  query += ' ORDER BY al.timestamp DESC LIMIT ?';
+  params.push(Math.min(parseInt(limit) || 100, 1000));
+
+  const logs = await db.prepare(query).all(...params);
+  res.json({ events: logs });
+});
+
+// ============================================================================
+// GDPR â Privacy policy endpoint
+// ============================================================================
+
+app.get('/api/privacy-policy', (req, res) => {
+  res.json({
+    title: 'PilottiPolku â Tietosuojaseloste',
+    controller: 'PilottiPolku-sovelluksen yllÃ¤pitÃ¤jÃ¤',
+    purpose: 'Varjoliidon koulutuksen hallinta ja seuranta',
+    legal_basis: 'Sopimus (koulutussuhde) ja oikeutettu etu (turvallisuus)',
+    data_collected: [
+      'Nimi, sÃ¤hkÃ¶posti, puhelinnumero',
+      'Koulutustiedot: lennot, teoria, kalusto',
+      'Kirjautumistiedot (salasana tallennetaan kryptattuna)',
+      'KÃ¤yttÃ¶loki (audit log) turvallisuussyistÃ¤'
+    ],
+    data_retention: 'Koulutustiedot sÃ¤ilytetÃ¤Ã¤n koulutussuhteen ajan ja 5 vuotta sen jÃ¤lkeen ilmailuviranomaisten vaatimusten mukaisesti.',
+    data_sharing: 'Tietoja ei luovuteta kolmansille osapuolille, paitsi viranomaisten lakisÃ¤Ã¤teisestÃ¤ pyynnÃ¶stÃ¤.',
+    rights: [
+      'Oikeus nÃ¤hdÃ¤ omat tiedot (sisÃ¤Ã¤nkirjautuessa nÃ¤kyvissÃ¤)',
+      'Oikeus pyytÃ¤Ã¤ tietojen oikaisua ohjaajalta',
+      'Oikeus pyytÃ¤Ã¤ tietojen poistamista (huom: ilmailumÃ¤Ã¤rÃ¤ykset voivat estÃ¤Ã¤ poiston)',
+      'Oikeus tehdÃ¤ valitus tietosuojavaltuutetulle'
+    ],
+    contact: 'Ota yhteyttÃ¤ kerhosi ohjaajaan tai yllÃ¤pitÃ¤jÃ¤Ã¤n tietosuoja-asioissa.',
+    updated: '2026-04-06'
+  });
+});
+
+// ============================================================================
+// ERROR HANDLING & SERVER START
+// ============================================================================
+
+app.use((err, req, res, next) => {
+  console.error('Error:', err);
+
+  // Report to Sentry if configured
+  if (Sentry) {
+    Sentry.captureException(err);
+  }
+
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'FILE_TOO_LARGE') {
+      return res.status(400).json({ error: 'File too large (max 10MB)' });
+    }
+    return res.status(400).json({ error: 'File upload error' });
+  }
+
+  if (err.message === 'Only PDF, JPG, and PNG files are allowed') {
+    return res.status(400).json({ error: err.message });
+  }
+
+  res.status(500).json({ error: 'Internal server error' });
+});
+
+// Seed database with default data (runs automatically on startup if DB is empty)
+async function seedDatabase() {
+  const db = getDb();
+  const userCount = await db.prepare('SELECT COUNT(*) as c FROM users').get();
+  if (parseInt(userCount.c) > 0) return { message: 'Already seeded', userCount: parseInt(userCount.c) };
+
+  console.log('Database is empty â seeding default data...');
+  const hash = (pw) => bcrypt.hashSync(pw, 12);
+
+  try {
+    // ============================
+    // Admin user (no club)
+    // ============================
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email) VALUES (?,?,?,?,?)'
+    ).run('admin', hash('admin123'), 'admin', 'PÃ¤Ã¤kÃ¤yttÃ¤jÃ¤', 'admin@pilottipolku.fi');
+
+    // ============================
+    // KERHO 1: HÃ¤meenkyrÃ¶n Lentokerho
+    // ============================
+    const club1 = await db.prepare(
+      'INSERT INTO clubs (name,slug,description) VALUES (?,?,?)'
+    ).run('HÃ¤meenkyrÃ¶n Lentokerho', 'hameenkyro', 'HÃ¤meenkyrÃ¶n lentokerhon koulutusohjelma');
+    const club1Id = club1.lastInsertRowid;
+
+    // Ohjaajat
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)'
+    ).run('Taavi', hash('Taavi123!!'), 'instructor', 'Taavi Tuulentaittaja', 'taavi@hameenkyronlentokerho.fi', '040-1234567', club1Id);
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)'
+    ).run('Marko', hash('Marko123!!'), 'instructor', 'Marko Sorvamaa', 'marko.sorvamaa@qtec.fi', '050-7654321', club1Id);
+
+    // Oppilaat
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('pekka', hash('oppilas123'), 'student', 'Pekka Pilotti', 'pekka@example.com', '044-1111111', 'ongoing', '2026-01-15', club1Id);
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('anna', hash('oppilas123'), 'student', 'Anna Aloittelija', 'anna@example.com', '044-2222222', 'ongoing', '2026-02-01', club1Id);
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('kalle', hash('oppilas123'), 'student', 'Kalle KorkealentÃ¤jÃ¤', 'kalle@example.com', '044-3333333', 'ongoing', '2025-06-01', club1Id);
+
+    // Lentopaikat
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Teisko', 'Teiskon harjoittelupaikka', club1Id);
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('HÃ¤meenkyrÃ¶n lentokenttÃ¤', 'EFHM, pÃ¤Ã¤kenttÃ¤', club1Id);
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('JÃ¤mi', 'JÃ¤min lentopaikka', club1Id);
+
+    // ============================
+    // KERHO 2: FlyDaddy
+    // ============================
+    const club2 = await db.prepare(
+      'INSERT INTO clubs (name,slug,description) VALUES (?,?,?)'
+    ).run('FlyDaddy', 'flydaddy', 'FlyDaddy varjoliitokoulutus');
+    const club2Id = club2.lastInsertRowid;
+
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)'
+    ).run('VÃ¤iski', hash('VÃ¤iski123!!'), 'instructor', 'VÃ¤iski Virtanen', 'vaiski@flydaddy.fi', '040-5551234', club2Id);
+
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('mikko_fd', hash('oppilas123'), 'student', 'Mikko MÃ¤kinen', 'mikko.m@example.com', '044-4444444', 'ongoing', '2026-01-10', club2Id);
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('sanna_fd', hash('oppilas123'), 'student', 'Sanna Siipi', 'sanna.s@example.com', '044-5555555', 'ongoing', '2026-02-20', club2Id);
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('tommi_fd', hash('oppilas123'), 'student', 'Tommi Tuuli', 'tommi.t@example.com', '044-6666666', 'ongoing', '2025-09-15', club2Id);
+
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Vesivehmaa', 'Vesivehmaan lentokenttÃ¤', club2Id);
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('IsolÃ¤hde', 'IsolÃ¤hteen lentopaikka', club2Id);
+
+    // ============================
+    // KERHO 3: Oulun Icaros Team
+    // ============================
+    const club3 = await db.prepare(
+      'INSERT INTO clubs (name,slug,description) VALUES (?,?,?)'
+    ).run('Oulun Icaros Team', 'icaros', 'Oulun Icaros Team varjoliitokoulutus');
+    const club3Id = club3.lastInsertRowid;
+
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)'
+    ).run('Jarno', hash('Jarno123!!'), 'instructor', 'Jarno JÃ¤rvinen', 'jarno@icaros.fi', '040-6661234', club3Id);
+
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('heikki_ic', hash('oppilas123'), 'student', 'Heikki Haukka', 'heikki.h@example.com', '044-7777777', 'ongoing', '2026-03-01', club3Id);
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('liisa_ic', hash('oppilas123'), 'student', 'Liisa Lokki', 'liisa.l@example.com', '044-8888888', 'ongoing', '2025-11-01', club3Id);
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('erkki_ic', hash('oppilas123'), 'student', 'Erkki EtelÃ¤vuori', 'erkki.e@example.com', '044-9999999', 'ongoing', '2025-08-15', club3Id);
+
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Ahmosuo', 'Ahmosuon lentopaikka', club3Id);
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Kuivasmeri', 'Kuivasmeren lentopaikka', club3Id);
+
+    // ============================
+    // KERHO 4: Airiston VarjoliitÃ¤jÃ¤t
+    // ============================
+    const club4 = await db.prepare(
+      'INSERT INTO clubs (name,slug,description) VALUES (?,?,?)'
+    ).run('Airiston VarjoliitÃ¤jÃ¤t', 'airisto', 'Airiston VarjoliitÃ¤jÃ¤t ry');
+    const club4Id = club4.lastInsertRowid;
+
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)'
+    ).run('Juho', hash('Juho123!!'), 'instructor', 'Juho Jokinen', 'juho@airisto.fi', '040-7771234', club4Id);
+
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('ville_ai', hash('oppilas123'), 'student', 'Ville Varpunen', 'ville.v@example.com', '044-1010101', 'ongoing', '2026-02-15', club4Id);
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('maria_ai', hash('oppilas123'), 'student', 'Maria Merilintu', 'maria.m@example.com', '044-2020202', 'ongoing', '2025-10-01', club4Id);
+    await db.prepare(
+      'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
+    ).run('jukka_ai', hash('oppilas123'), 'student', 'Jukka Jalohaukka', 'jukka.j@example.com', '044-3030303', 'ongoing', '2026-01-20', club4Id);
+
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('OripÃ¤Ã¤', 'OripÃ¤Ã¤n lentopaikka', club4Id);
+
+    // ============================
+    // THEORY SECTIONS & TOPICS (same for all clubs)
+    // ============================
+    const theorySections = [
+      { level:'pp1', key:'pp1_aero', title:'Aerodynamiikka', topics:[
+        {key:'pp1_aero_1',title:'Liitimen rakenne ja toiminta',dur:45,comment:'Koulutusopas luku 2.1'},
+        {key:'pp1_aero_2',title:'Nostovoima ja vastus',dur:45,comment:'Koulutusopas luku 2.2'},
+        {key:'pp1_aero_3',title:'Lentonopeudet ja suoritusarvot',dur:30,comment:'Koulutusopas luku 2.3'},
+        {key:'pp1_aero_4',title:'Sakkaus ja sen vÃ¤lttÃ¤minen',dur:45,comment:'Koulutusopas luku 2.4'},
+        {key:'pp1_aero_5',title:'KÃ¤Ã¤ntyminen ja painonsiirto',dur:30,comment:'Koulutusopas luku 2.5'}
+      ]},
+      { level:'pp1', key:'pp1_meteo', title:'Mikrometeorologia', topics:[
+        {key:'pp1_meteo_1',title:'Tuulen perusteet',dur:45,comment:'Koulutusopas luku 3.1'},
+        {key:'pp1_meteo_2',title:'Terminen aktiivisuus â perusteet',dur:45,comment:'Koulutusopas luku 3.2'},
+        {key:'pp1_meteo_3',title:'Turbulenssi ja tuulengradientti',dur:30,comment:'Koulutusopas luku 3.3'},
+        {key:'pp1_meteo_4',title:'SÃ¤Ã¤ennusteiden lukeminen',dur:30,comment:'Koulutusopas luku 3.4'},
+        {key:'pp1_meteo_5',title:'PaikallissÃ¤Ã¤ilmiÃ¶t',dur:30,comment:'Koulutusopas luku 3.5'}
+      ]},
+      { level:'pp1', key:'pp1_equip', title:'VÃ¤lineet', topics:[
+        {key:'pp1_equip_1',title:'Liitimen osat ja materiaalit',dur:45,comment:'Koulutusopas luku 4.1'},
+        {key:'pp1_equip_2',title:'Valjaat ja varavarjo',dur:45,comment:'Koulutusopas luku 4.2'},
+        {key:'pp1_equip_3',title:'KypÃ¤rÃ¤ ja suojavarusteet',dur:30,comment:'Koulutusopas luku 4.3'},
+        {key:'pp1_equip_4',title:'VÃ¤lineiden tarkastus ja huolto',dur:45,comment:'Koulutusopas luku 4.4'}
+      ]},
+      { level:'pp1', key:'pp1_rules', title:'SÃ¤Ã¤nnÃ¶t ja ilmatila', topics:[
+        {key:'pp1_rules_1',title:'Ilmailulaki ja -mÃ¤Ã¤rÃ¤ykset',dur:45,comment:'Koulutusopas luku 5.1'},
+        {key:'pp1_rules_2',title:'Ilmatilarakenne',dur:45,comment:'Koulutusopas luku 5.2'},
+        {key:'pp1_rules_3',title:'NOTAM ja ilmailutiedotteet',dur:30,comment:'Koulutusopas luku 5.3'},
+        {key:'pp1_rules_4',title:'VÃ¤istÃ¤missÃ¤Ã¤nnÃ¶t',dur:30,comment:'Koulutusopas luku 5.4'},
+        {key:'pp1_rules_5',title:'SIL:n ohjeet ja koulutusvaatimukset',dur:45,comment:'Koulutusopas luku 5.5'}
+      ]},
+      { level:'pp1', key:'pp1_tech', title:'Lentotekniikka PP1', topics:[
+        {key:'pp1_tech_1',title:'Maassa tapahtuva harjoittelu',dur:45,comment:'Koulutusopas luku 6.1'},
+        {key:'pp1_tech_2',title:'Nousu ja laskeutuminen',dur:60,comment:'Koulutusopas luku 6.2'},
+        {key:'pp1_tech_3',title:'Suuntaohjaus ja nopeudensÃ¤Ã¤tÃ¶',dur:45,comment:'Koulutusopas luku 6.3'},
+        {key:'pp1_tech_4',title:'Laskeutumiskuviot',dur:45,comment:'Koulutusopas luku 6.4'},
+        {key:'pp1_tech_5',title:'Top-landing harjoittelu',dur:30,comment:'Koulutusopas luku 6.5'}
+      ]},
+      { level:'pp1', key:'pp1_safety', title:'Turvallisuus PP1', topics:[
+        {key:'pp1_safety_1',title:'Riskienhallinta ja pÃ¤Ã¤tÃ¶ksenteko',dur:45,comment:'Koulutusopas luku 7.1'},
+        {key:'pp1_safety_2',title:'HÃ¤tÃ¤tilanteet â liitimen hallinta',dur:60,comment:'Koulutusopas luku 7.2'},
+        {key:'pp1_safety_3',title:'Varavarjon kÃ¤yttÃ¶',dur:45,comment:'Koulutusopas luku 7.3'},
+        {key:'pp1_safety_4',title:'Ensiapu lentopaikalla',dur:45,comment:'Koulutusopas luku 7.4'},
+        {key:'pp1_safety_5',title:'Onnettomuusraportointi',dur:30,comment:'Koulutusopas luku 7.5'}
+      ]},
+      { level:'pp2', key:'pp2_aero_adv', title:'Aerodynamiikka (syventÃ¤vÃ¤)', topics:[
+        {key:'pp2_aero_1',title:'Profiilipolaaridiagrammit',dur:45,comment:'Koulutusopas luku 8.1'},
+        {key:'pp2_aero_2',title:'Liitosuhde ja sink rate',dur:45,comment:'Koulutusopas luku 8.2'},
+        {key:'pp2_aero_3',title:'Wingover ja SAT â aerodynamiikka',dur:60,comment:'Koulutusopas luku 8.3'},
+        {key:'pp2_aero_4',title:'Speed system ja trim',dur:30,comment:'Koulutusopas luku 8.4'},
+        {key:'pp2_aero_5',title:'EN-luokitus ja turvallisuustestit',dur:30,comment:'Koulutusopas luku 8.5'},
+        {key:'pp2_aero_6',title:'Siipiprofiilien vertailu',dur:45,comment:'Koulutusopas luku 8.6'}
+      ]},
+      { level:'pp2', key:'pp2_meteo_adv', title:'Meteorologia (syventÃ¤vÃ¤)', topics:[
+        {key:'pp2_meteo_1',title:'Synoptiikka ja sÃ¤Ã¤kartat',dur:60,comment:'Koulutusopas luku 9.1'},
+        {key:'pp2_meteo_2',title:'Termiikka â kehittynyt teoria',dur:60,comment:'Koulutusopas luku 9.2'},
+        {key:'pp2_meteo_3',title:'Inversiot ja stabiilisuus',dur:45,comment:'Koulutusopas luku 9.3'},
+        {key:'pp2_meteo_4',title:'Vuoristoaallot ja roottori',dur:45,comment:'Koulutusopas luku 9.4'},
+        {key:'pp2_meteo_5',title:'Ukkosrintamat ja vaaralliset sÃ¤Ã¤tilat',dur:45,comment:'Koulutusopas luku 9.5'},
+        {key:'pp2_meteo_6',title:'LentosÃ¤Ã¤n arviointi ja Go/No-Go',dur:30,comment:'Koulutusopas luku 9.6'}
+      ]},
+      { level:'pp2', key:'pp2_nav', title:'Navigointi', topics:[
+        {key:'pp2_nav_1',title:'Kartat ja koordinaatistot',dur:45,comment:'Koulutusopas luku 10.1'},
+        {key:'pp2_nav_2',title:'GPS-navigointi ilmassa',dur:45,comment:'Koulutusopas luku 10.2'},
+        {key:'pp2_nav_3',title:'Reittisuunnittelu â XC',dur:60,comment:'Koulutusopas luku 10.3'},
+        {key:'pp2_nav_4',title:'Ilmatilarajat ja karttapalvelut',dur:30,comment:'Koulutusopas luku 10.4'},
+        {key:'pp2_nav_5',title:'Vario ja flight computer',dur:45,comment:'Koulutusopas luku 10.5'}
+      ]},
+      { level:'pp2', key:'pp2_tech_adv', title:'Lentotekniikka PP2', topics:[
+        {key:'pp2_tech_1',title:'Termiikkiin keskittyminen',dur:60,comment:'Koulutusopas luku 11.1'},
+        {key:'pp2_tech_2',title:'Dynaamiset kÃ¤Ã¤nnÃ¶kset',dur:45,comment:'Koulutusopas luku 11.2'},
+        {key:'pp2_tech_3',title:'Big ears ja B-stall',dur:45,comment:'Koulutusopas luku 11.3'},
+        {key:'pp2_tech_4',title:'Spiral dive ja exit',dur:60,comment:'Koulutusopas luku 11.4'},
+        {key:'pp2_tech_5',title:'Laskeutuminen ahtaisiin paikkoihin',dur:45,comment:'Koulutusopas luku 11.5'},
+        {key:'pp2_tech_6',title:'Tuulilaskennat ja finaalivalinta',dur:45,comment:'Koulutusopas luku 11.6'}
+      ]},
+      { level:'pp2', key:'pp2_xc', title:'Matkalento (XC)', topics:[
+        {key:'pp2_xc_1',title:'XC-lennon suunnittelu',dur:60,comment:'Koulutusopas luku 12.1'},
+        {key:'pp2_xc_2',title:'Termiikkistrategia',dur:60,comment:'Koulutusopas luku 12.2'},
+        {key:'pp2_xc_3',title:'SiirtymÃ¤lennot ja liito-optimointi',dur:45,comment:'Koulutusopas luku 12.3'},
+        {key:'pp2_xc_4',title:'XC-kilpailut ja FAI-sÃ¤Ã¤nnÃ¶t',dur:45,comment:'Koulutusopas luku 12.4'},
+        {key:'pp2_xc_5',title:'LentopÃ¤ivÃ¤kirja ja dokumentointi',dur:30,comment:'Koulutusopas luku 12.5'}
+      ]},
+      { level:'pp2', key:'pp2_safety_adv', title:'Turvallisuus PP2', topics:[
+        {key:'pp2_safety_1',title:'SIV-kurssin teoria',dur:60,comment:'Koulutusopas luku 13.1'},
+        {key:'pp2_safety_2',title:'Kasaantuminen ja cravat',dur:45,comment:'Koulutusopas luku 13.2'},
+        {key:'pp2_safety_3',title:'Autorotaatio ja full stall',dur:45,comment:'Koulutusopas luku 13.3'},
+        {key:'pp2_safety_4',title:'LÃ¤heltÃ¤ piti -raportointi',dur:30,comment:'Koulutusopas luku 13.4'},
+        {key:'pp2_safety_5',title:'Henkinen valmentautuminen',dur:45,comment:'Koulutusopas luku 13.5'}
+      ]},
+      { level:'pp2', key:'pp2_human', title:'Inhimilliset tekijÃ¤t', topics:[
+        {key:'pp2_human_1',title:'Ihmisen suorituskyky ja rajoitukset',dur:45,comment:'Koulutusopas luku 14.1'},
+        {key:'pp2_human_2',title:'PÃ¤Ã¤tÃ¶ksenteko lennolla (ADM)',dur:45,comment:'Koulutusopas luku 14.2'},
+        {key:'pp2_human_3',title:'Stressinhallinta',dur:30,comment:'Koulutusopas luku 14.3'},
+        {key:'pp2_human_4',title:'Fyysinen kunto ja lentÃ¤minen',dur:30,comment:'Koulutusopas luku 14.4'},
+        {key:'pp2_human_5',title:'Hypoksia ja kylmyys',dur:45,comment:'Koulutusopas luku 14.5'},
+        {key:'pp2_human_6',title:'RyhmÃ¤dynamiikka lentopaikalla',dur:30,comment:'Koulutusopas luku 14.6'}
+      ]}
+    ];
+
+    let sortOrder = 0;
+    for (const sec of theorySections) {
+      const secResult = await db.prepare('INSERT INTO theory_sections (level,key,title,sort_order) VALUES (?,?,?,?)')
+        .run(sec.level, sec.key, sec.title, sortOrder++);
+      const sectionId = secResult.lastInsertRowid;
+      let topicSort = 0;
+      for (const t of sec.topics) {
+        await db.prepare('INSERT INTO theory_topics_def (section_id,key,title,duration_minutes,comment,sort_order) VALUES (?,?,?,?,?,?)')
+          .run(sectionId, t.key, t.title, t.dur, t.comment, topicSort++);
+      }
+    }
+
+    const totalUsers = 1 + 2 + 3 + 1 + 3 + 1 + 3; // admin + 4 clubs
+    const totalSites = 3 + 2 + 2 + 1;
+    console.log(`Seed complete: ${totalUsers} users, 4 clubs, ${totalSites} sites, ${theorySections.length} theory sections`);
+    return { message: 'Seed complete', users: totalUsers, clubs: 4, sites: totalSites, theorySections: theorySections.length };
+  } catch(e) {
+    console.error('Seed error:', e.message);
+    throw e;
+  }
+}
+
+// Seed endpoint (also available via HTTP for manual use)
+app.post('/api/seed', async (req, res) => {
+  try {
+    const result = await seedDatabase();
+    res.json(result);
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Initialize database, auto-seed if empty, then start server
+initDb().then(async () => {
+  // Automatically seed the database if it's empty
+  try {
+    await seedDatabase();
+  } catch(e) {
+    console.error('Auto-seed failed:', e.message);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`PilottiPolku app server running on http://localhost:${PORT}`);
+  });
+}).catch(err => {
+  console.error('Failed to initialize database:', err);
+  process.exit(1);
+});
