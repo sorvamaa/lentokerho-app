@@ -10,7 +10,6 @@ let currentView = 'dashboard';
 let currentStudentId = null;
 let currentLessonId = null;
 let isLoading = false;
-let loginGeneration = 0; // Tracks login sessions to prevent stale 401s from cancelling new logins
 
 // ============================================================================
 // THEORY TOPICS — loaded dynamically from database
@@ -59,19 +58,12 @@ async function api(method, url, body = null) {
     options.body = JSON.stringify(body);
   }
 
-  const requestGeneration = loginGeneration;
-
   try {
     const response = await fetch(url, options);
 
     if (response.status === 401) {
-      // Only show login if no new login has happened since this request started.
-      // This prevents stale 401 responses (from in-flight requests during logout)
-      // from kicking a user out after they've already logged in as a new user.
-      if (requestGeneration === loginGeneration) {
-        currentUser = null;
-        showLoginView();
-      }
+      currentUser = null;
+      showLoginView();
       return null;
     }
 
@@ -293,7 +285,6 @@ async function handleLogin() {
 
   const result = await api('POST', '/api/login', { username, password });
   if (result && result.id) {
-    loginGeneration++; // Invalidate any pending 401 handlers from previous session
     currentUser = result;
     showSuccess('Kirjautuminen onnistui');
     setupNavigation();
@@ -311,19 +302,6 @@ async function handleLogout() {
   await api('POST', '/api/logout');
   currentUser = null;
   window.location.hash = '';
-  // Reset sidebar to default state
-  const sidebarMenu = document.getElementById('sidebar-menu');
-  if (sidebarMenu) {
-    sidebarMenu.innerHTML = `
-      <li><a href="#dashboard" class="nav-link" data-nav-link="dashboard">Dashboard</a></li>
-      <li><a href="#students" class="nav-link" data-nav-link="students">Oppilaat</a></li>
-      <li><a href="#instructors" class="nav-link" data-nav-link="instructors">Ohjaajat</a></li>
-      <li><a href="#lessons" class="nav-link" data-nav-link="lessons">Oppitunnit</a></li>
-      <li><a href="#sites" class="nav-link" data-nav-link="sites">Lentopaikat</a></li>
-      <li><a href="#theory-management" class="nav-link" data-nav-link="theory-management">Teoria</a></li>
-      <li><a href="#audit-log" class="nav-link" data-nav-link="audit-log">Loki</a></li>
-    `;
-  }
   showLoginView();
 }
 
@@ -359,21 +337,15 @@ function setupNavigation() {
       <li><a href="#theory-management" class="nav-link" data-nav-link="theory-management">Teoria</a></li>
     `;
   } else {
-    // Always reset sidebar to full instructor/admin links
-    let menuHtml = `
-      <li><a href="#dashboard" class="nav-link" data-nav-link="dashboard">Dashboard</a></li>
-      <li><a href="#students" class="nav-link" data-nav-link="students">Oppilaat</a></li>
-      <li><a href="#instructors" class="nav-link" data-nav-link="instructors">Ohjaajat</a></li>
-      <li><a href="#lessons" class="nav-link" data-nav-link="lessons">Oppitunnit</a></li>
-      <li><a href="#sites" class="nav-link" data-nav-link="sites">Lentopaikat</a></li>
-      <li><a href="#theory-management" class="nav-link" data-nav-link="theory-management">Teoria</a></li>
-    `;
     // Add clubs link for admin users
     if (currentUser && currentUser.role === 'admin') {
-      menuHtml += `<li><a href="#clubs" class="nav-link" data-nav-link="clubs">Kerhot</a></li>`;
+      const clubsLi = document.createElement('li');
+      clubsLi.innerHTML = '<a href="#clubs" class="nav-link" data-nav-link="clubs">Kerhot</a>';
+
+      // Insert before audit-log
+      const auditLogLi = sidebarMenu.querySelector('[data-nav-link="audit-log"]').parentElement;
+      sidebarMenu.insertBefore(clubsLi, auditLogLi);
     }
-    menuHtml += `<li><a href="#audit-log" class="nav-link" data-nav-link="audit-log">Loki</a></li>`;
-    sidebarMenu.innerHTML = menuHtml;
   }
 }
 
@@ -715,7 +687,12 @@ async function renderStudentDetail(id) {
           <p style="margin: 2px 0;"><strong>Sähköposti:</strong> ${escapeHtml(student.email)}</p>
           <p style="margin: 2px 0;"><strong>Puhelin:</strong> ${escapeHtml(student.phone || '-')}</p>
         </div>
-        ${isInstructor ? `<button class="btn btn-secondary" onclick="showEditStudentModal(${id})">Muokkaa</button>` : ''}
+        ${isInstructor ? `
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-secondary" onclick="showEditStudentModal(${id})">Muokkaa</button>
+            <button class="btn btn-secondary" onclick="showResetPasswordModal(${id}, '${escapeHtml(student.name)}')">Nollaa salasana</button>
+          </div>
+        ` : ''}
       </div>
 
       <div class="tabs">
@@ -1090,7 +1067,7 @@ async function loadAttachmentsTab(studentId) {
   const isStudent = currentUser && currentUser.role === 'student';
 
   let html = '';
-  if (isInstructor) {
+  if (isInstructor || (isStudent && currentUser.id == studentId)) {
     html += `<button class="btn btn-primary" onclick="showUploadAttachmentModal(${studentId})" style="margin-bottom: 15px;">+ Lisää liite</button>`;
   }
 
@@ -1368,6 +1345,53 @@ async function handleEditStudent(event, studentId) {
     hideModal();
     showSuccess('Oppilas päivitetty');
     renderStudentDetail(studentId);
+  }
+}
+
+// Admin password reset modal
+function showResetPasswordModal(userId, userName) {
+  const html = `
+    <p>Nollaa salasana käyttäjälle <strong>${userName}</strong>.</p>
+    <form onsubmit="handleResetPassword(event, ${userId})">
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Uusi salasana *</label>
+        <input type="password" id="reset-pw-new" minlength="8" required placeholder="Vähintään 8 merkkiä" style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Vahvista salasana *</label>
+        <input type="password" id="reset-pw-confirm" minlength="8" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div style="margin-top: 20px; text-align: right;">
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Peruuta</button>
+        <button type="submit" class="btn btn-primary">Nollaa salasana</button>
+      </div>
+    </form>
+  `;
+  showModal('Nollaa salasana', html);
+}
+
+async function handleResetPassword(event, userId) {
+  event.preventDefault();
+  const newPw = $('reset-pw-new').value;
+  const confirmPw = $('reset-pw-confirm').value;
+
+  if (newPw !== confirmPw) {
+    showError('Salasanat eivät täsmää');
+    return;
+  }
+  if (newPw.length < 8) {
+    showError('Salasanan pitää olla vähintään 8 merkkiä');
+    return;
+  }
+
+  const result = await api('POST', '/api/admin/reset-password', {
+    user_id: userId,
+    new_password: newPw
+  });
+
+  if (result && result.success) {
+    hideModal();
+    showSuccess('Salasana nollattu onnistuneesti');
   }
 }
 
