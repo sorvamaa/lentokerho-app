@@ -2261,12 +2261,56 @@ app.post('/api/seed', async (req, res) => {
 });
 
 // Initialize database, auto-seed if empty, then start server
+
+// One-time migration: fix double-encoded UTF-8 Finnish characters in database
+async function fixDoubleEncodedUtf8() {
+  const db = getDb();
+  try {
+    const test = await db.prepare("SELECT name FROM users WHERE name LIKE '%\u00c3%' LIMIT 1").get();
+    if (!test) {
+      return;
+    }
+    console.log('Fixing double-encoded UTF-8 characters in database...');
+    
+    const pool = db.getPool();
+    
+    const fixes = [
+      "UPDATE users SET name = convert_from(convert_to(name, 'LATIN1'), 'UTF8') WHERE name ~ '[\u00c0-\u00ff]'",
+      "UPDATE clubs SET name = convert_from(convert_to(name, 'LATIN1'), 'UTF8') WHERE name ~ '[\u00c0-\u00ff]'",
+      "UPDATE clubs SET description = convert_from(convert_to(description, 'LATIN1'), 'UTF8') WHERE description ~ '[\u00c0-\u00ff]'",
+      "UPDATE sites SET name = convert_from(convert_to(name, 'LATIN1'), 'UTF8') WHERE name ~ '[\u00c0-\u00ff]'",
+      "UPDATE sites SET description = convert_from(convert_to(description, 'LATIN1'), 'UTF8') WHERE description ~ '[\u00c0-\u00ff]'",
+      "UPDATE curriculum_topics SET title = convert_from(convert_to(title, 'LATIN1'), 'UTF8') WHERE title ~ '[\u00c0-\u00ff]'",
+      "UPDATE curriculum_topics SET comment = convert_from(convert_to(comment, 'LATIN1'), 'UTF8') WHERE comment IS NOT NULL AND comment ~ '[\u00c0-\u00ff]'",
+      "UPDATE flights SET notes = convert_from(convert_to(notes, 'LATIN1'), 'UTF8') WHERE notes IS NOT NULL AND notes ~ '[\u00c0-\u00ff]'",
+      "UPDATE flights SET exercises = convert_from(convert_to(exercises, 'LATIN1'), 'UTF8') WHERE exercises IS NOT NULL AND exercises ~ '[\u00c0-\u00ff]'",
+      "UPDATE flights SET weather = convert_from(convert_to(weather, 'LATIN1'), 'UTF8') WHERE weather IS NOT NULL AND weather ~ '[\u00c0-\u00ff]'"
+    ];
+    
+    for (const sql of fixes) {
+      try {
+        await pool.query(sql);
+      } catch(e) {}
+    }
+    console.log('UTF-8 encoding fix applied successfully.');
+  } catch(e) {
+    console.error('UTF-8 fix failed (non-critical):', e.message);
+  }
+}
+
 initDb().then(async () => {
   // Automatically seed the database if it's empty
   try {
     await seedDatabase();
   } catch(e) {
     console.error('Auto-seed failed:', e.message);
+  }
+
+  // Fix any double-encoded UTF-8 characters from previous seed data
+  try {
+    await fixDoubleEncodedUtf8();
+  } catch(e) {
+    console.error('UTF-8 fix failed:', e.message);
   }
 
   app.listen(PORT, () => {
