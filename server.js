@@ -15,7 +15,7 @@ const { initDb, getDb } = require('./db');
 const { logAction } = require('./audit');
 const { sendPasswordReset } = require('./mailer');
 
-// Sentry error tracking (optional — only if DSN is configured)
+// Sentry error tracking (optional â only if DSN is configured)
 let Sentry = null;
 if (process.env.SENTRY_DSN) {
   Sentry = require('@sentry/node');
@@ -51,7 +51,7 @@ app.set('trust proxy', 1);
 // SECURITY MIDDLEWARE
 // ============================================================================
 
-// Helmet.js — security headers
+// Helmet.js â security headers
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -67,21 +67,21 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-// Rate limiting — login endpoint (5 attempts per 15 minutes)
+// Rate limiting â login endpoint (5 attempts per 15 minutes)
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
-  message: { error: 'Liian monta kirjautumisyritystä. Yritä uudelleen 15 minuutin kuluttua.' },
+  message: { error: 'Liian monta kirjautumisyritystÃ¤. YritÃ¤ uudelleen 15 minuutin kuluttua.' },
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => req.ip
 });
 
-// Rate limiting — general API (100 requests per minute)
+// Rate limiting â general API (100 requests per minute)
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
-  message: { error: 'Liian monta pyyntöä. Yritä hetken kuluttua uudelleen.' },
+  message: { error: 'Liian monta pyyntÃ¶Ã¤. YritÃ¤ hetken kuluttua uudelleen.' },
   standardHeaders: true,
   legacyHeaders: false
 });
@@ -366,7 +366,7 @@ app.post('/api/reset-password', async (req, res) => {
   res.json({ success: true });
 });
 
-// POST /api/admin/reset-password — Instructor can reset student passwords
+// POST /api/admin/reset-password â Instructor can reset student passwords
 app.post('/api/admin/reset-password', requireAuth, requireInstructor, async (req, res) => {
   const { user_id, new_password } = req.body;
 
@@ -545,7 +545,7 @@ app.get('/api/students/:id', requireAuth, async (req, res) => {
     return res.status(403).json({ error: 'Not authorized to view this student' });
   }
 
-  // Never return password_hash — use explicit column list
+  // Never return password_hash â use explicit column list
   const student = await db.prepare(
     'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, course_started, student_notes, created_at FROM users WHERE id = ? AND role = ?'
   ).get(id, 'student');
@@ -574,7 +574,7 @@ app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) =>
   if (status === 'completed') {
     const examPassed = pp2_exam_passed !== undefined ? pp2_exam_passed : student.pp2_exam_passed;
     if (!examPassed) {
-      return res.status(400).json({ error: 'PP2-koe täytyy olla suoritettu ennen valmistumista' });
+      return res.status(400).json({ error: 'PP2-koe tÃ¤ytyy olla suoritettu ennen valmistumista' });
     }
   }
 
@@ -822,7 +822,7 @@ app.delete('/api/students/:id/theory/:topic_key', requireAuth, requireInstructor
 // THEORY MANAGEMENT ROUTES (dynamic sections & topics)
 // ============================================================================
 
-// GET /api/theory/structure — returns full structure for frontend
+// GET /api/theory/structure â returns full structure for frontend
 app.get('/api/theory/structure', requireAuth, async (req, res) => {
   const db = getDb();
 
@@ -869,7 +869,7 @@ app.get('/api/theory/structure', requireAuth, async (req, res) => {
   res.json(structure);
 });
 
-// GET /api/theory/sections — list all sections (admin only)
+// GET /api/theory/sections â list all sections (admin only)
 app.get('/api/theory/sections', requireAuth, requireAdmin, async (req, res) => {
   const db = getDb();
   const sections = await db.prepare(
@@ -878,7 +878,7 @@ app.get('/api/theory/sections', requireAuth, requireAdmin, async (req, res) => {
   res.json({ sections });
 });
 
-// POST /api/theory/sections — create a new section (admin only)
+// POST /api/theory/sections â create a new section (admin only)
 app.post('/api/theory/sections', requireAuth, requireAdmin, async (req, res) => {
   const { level, key, title } = req.body;
   if (!level || !key || !title) {
@@ -911,7 +911,7 @@ app.post('/api/theory/sections', requireAuth, requireAdmin, async (req, res) => 
   }
 });
 
-// PUT /api/theory/sections/:id — update a section (admin only)
+// PUT /api/theory/sections/:id â update a section (admin only)
 app.put('/api/theory/sections/:id', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { title, sort_order } = req.body;
@@ -931,7 +931,7 @@ app.put('/api/theory/sections/:id', requireAuth, requireAdmin, async (req, res) 
   res.json({ success: true });
 });
 
-// DELETE /api/theory/sections/:id — delete a section, admin only (only if no topics)
+// DELETE /api/theory/sections/:id â delete a section, admin only (only if no topics)
 app.delete('/api/theory/sections/:id', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const db = getDb();
@@ -949,7 +949,7 @@ app.delete('/api/theory/sections/:id', requireAuth, requireAdmin, async (req, re
   res.json({ success: true });
 });
 
-// POST /api/theory/sections/:id/topics — create a topic in a section (admin only)
+// POST /api/theory/sections/:id/topics â create a topic in a section (admin only)
 app.post('/api/theory/sections/:sectionId/topics', requireAuth, requireAdmin, async (req, res) => {
   const { sectionId } = req.params;
   const { key, title, duration_minutes, comment } = req.body;
@@ -983,7 +983,7 @@ app.post('/api/theory/sections/:sectionId/topics', requireAuth, requireAdmin, as
   }
 });
 
-// PUT /api/theory/topics/:id — update a topic (admin only)
+// PUT /api/theory/topics/:id â update a topic (admin only)
 app.put('/api/theory/topics/:id', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { title, duration_minutes, comment, sort_order } = req.body;
@@ -1005,7 +1005,7 @@ app.put('/api/theory/topics/:id', requireAuth, requireAdmin, async (req, res) =>
   res.json({ success: true });
 });
 
-// DELETE /api/theory/topics/:id — delete a topic, admin only (only if no completions)
+// DELETE /api/theory/topics/:id â delete a topic, admin only (only if no completions)
 app.delete('/api/theory/topics/:id', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const db = getDb();
@@ -1952,30 +1952,30 @@ app.get('/api/audit-log', requireAuth, requireInstructor, async (req, res) => {
 });
 
 // ============================================================================
-// GDPR — Privacy policy endpoint
+// GDPR â Privacy policy endpoint
 // ============================================================================
 
 app.get('/api/privacy-policy', (req, res) => {
   res.json({
-    title: 'PilottiPolku — Tietosuojaseloste',
-    controller: 'PilottiPolku-sovelluksen ylläpitäjä',
+    title: 'PilottiPolku â Tietosuojaseloste',
+    controller: 'PilottiPolku-sovelluksen yllÃ¤pitÃ¤jÃ¤',
     purpose: 'Varjoliidon koulutuksen hallinta ja seuranta',
     legal_basis: 'Sopimus (koulutussuhde) ja oikeutettu etu (turvallisuus)',
     data_collected: [
-      'Nimi, sähköposti, puhelinnumero',
+      'Nimi, sÃ¤hkÃ¶posti, puhelinnumero',
       'Koulutustiedot: lennot, teoria, kalusto',
       'Kirjautumistiedot (salasana tallennetaan kryptattuna)',
-      'Käyttöloki (audit log) turvallisuussyistä'
+      'KÃ¤yttÃ¶loki (audit log) turvallisuussyistÃ¤'
     ],
-    data_retention: 'Koulutustiedot säilytetään koulutussuhteen ajan ja 5 vuotta sen jälkeen ilmailuviranomaisten vaatimusten mukaisesti.',
-    data_sharing: 'Tietoja ei luovuteta kolmansille osapuolille, paitsi viranomaisten lakisääteisestä pyynnöstä.',
+    data_retention: 'Koulutustiedot sÃ¤ilytetÃ¤Ã¤n koulutussuhteen ajan ja 5 vuotta sen jÃ¤lkeen ilmailuviranomaisten vaatimusten mukaisesti.',
+    data_sharing: 'Tietoja ei luovuteta kolmansille osapuolille, paitsi viranomaisten lakisÃ¤Ã¤teisestÃ¤ pyynnÃ¶stÃ¤.',
     rights: [
-      'Oikeus nähdä omat tiedot (sisäänkirjautuessa näkyvissä)',
-      'Oikeus pyytää tietojen oikaisua ohjaajalta',
-      'Oikeus pyytää tietojen poistamista (huom: ilmailumääräykset voivat estää poiston)',
-      'Oikeus tehdä valitus tietosuojavaltuutetulle'
+      'Oikeus nÃ¤hdÃ¤ omat tiedot (sisÃ¤Ã¤nkirjautuessa nÃ¤kyvissÃ¤)',
+      'Oikeus pyytÃ¤Ã¤ tietojen oikaisua ohjaajalta',
+      'Oikeus pyytÃ¤Ã¤ tietojen poistamista (huom: ilmailumÃ¤Ã¤rÃ¤ykset voivat estÃ¤Ã¤ poiston)',
+      'Oikeus tehdÃ¤ valitus tietosuojavaltuutetulle'
     ],
-    contact: 'Ota yhteyttä kerhosi ohjaajaan tai ylläpitäjään tietosuoja-asioissa.',
+    contact: 'Ota yhteyttÃ¤ kerhosi ohjaajaan tai yllÃ¤pitÃ¤jÃ¤Ã¤n tietosuoja-asioissa.',
     updated: '2026-04-06'
   });
 });
@@ -2012,7 +2012,7 @@ async function seedDatabase() {
   const userCount = await db.prepare('SELECT COUNT(*) as c FROM users').get();
   if (parseInt(userCount.c) > 0) return { message: 'Already seeded', userCount: parseInt(userCount.c) };
 
-  console.log('Database is empty — seeding default data...');
+  console.log('Database is empty â seeding default data...');
   const hash = (pw) => bcrypt.hashSync(pw, 12);
 
   try {
@@ -2021,23 +2021,23 @@ async function seedDatabase() {
     // ============================
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email) VALUES (?,?,?,?,?)'
-    ).run('admin', hash('admin123'), 'admin', 'Pääkäyttäjä', 'admin@pilottipolku.fi');
+    ).run('admin', hash('admin123'), 'admin', 'PÃ¤Ã¤kÃ¤yttÃ¤jÃ¤', 'admin@pilottipolku.fi');
 
     // ============================
-    // KERHO 1: Hämeenkyrön Lentokerho
+    // KERHO 1: HÃ¤meenkyrÃ¶n Lentokerho
     // ============================
     const club1 = await db.prepare(
       'INSERT INTO clubs (name,slug,description) VALUES (?,?,?)'
-    ).run('Hämeenkyrön Lentokerho', 'hameenkyro', 'Hämeenkyrön lentokerhon koulutusohjelma');
+    ).run('HÃ¤meenkyrÃ¶n Lentokerho', 'hameenkyro', 'HÃ¤meenkyrÃ¶n lentokerhon koulutusohjelma');
     const club1Id = club1.lastInsertRowid;
 
     // Ohjaajat
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)'
-    ).run('Taavi', hash('Taavi123!!'), 'instructor', 'Taavi Tuulentaittaja', 'taavi@hameenkyronlentokerho.fi', '040-1234567', club1Id);
+    ).run('Taavi', hash('Taavi123!!'), 'instructor', 'Taavi Tuulentaittaja', 'taavi.t@example.com', '040-1234567', club1Id);
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)'
-    ).run('Marko', hash('Marko123!!'), 'instructor', 'Marko Sorvamaa', 'marko.sorvamaa@qtec.fi', '050-7654321', club1Id);
+    ).run('Marko', hash('Marko123!!'), 'instructor', 'Marko Sorvamaa', 'marko.s@example.com', '050-7654321', club1Id);
 
     // Oppilaat
     await db.prepare(
@@ -2048,12 +2048,12 @@ async function seedDatabase() {
     ).run('anna', hash('oppilas123'), 'student', 'Anna Aloittelija', 'anna@example.com', '044-2222222', 'ongoing', '2026-02-01', club1Id);
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
-    ).run('kalle', hash('oppilas123'), 'student', 'Kalle Korkealentäjä', 'kalle@example.com', '044-3333333', 'ongoing', '2025-06-01', club1Id);
+    ).run('kalle', hash('oppilas123'), 'student', 'Kalle KorkealentÃ¤jÃ¤', 'kalle@example.com', '044-3333333', 'ongoing', '2025-06-01', club1Id);
 
     // Lentopaikat
     await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Teisko', 'Teiskon harjoittelupaikka', club1Id);
-    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Hämeenkyrön lentokenttä', 'EFHM, pääkenttä', club1Id);
-    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Jämi', 'Jämin lentopaikka', club1Id);
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('HÃ¤meenkyrÃ¶n lentokenttÃ¤', 'EFHM, pÃ¤Ã¤kenttÃ¤', club1Id);
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('JÃ¤mi', 'JÃ¤min lentopaikka', club1Id);
 
     // ============================
     // KERHO 2: FlyDaddy
@@ -2065,11 +2065,11 @@ async function seedDatabase() {
 
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)'
-    ).run('Väiski', hash('Väiski123!!'), 'instructor', 'Väiski Virtanen', 'vaiski@flydaddy.fi', '040-5551234', club2Id);
+    ).run('VÃ¤iski', hash('VÃ¤iski123!!'), 'instructor', 'VÃ¤iski Virtanen', 'vaiski.v@example.com', '040-5551234', club2Id);
 
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
-    ).run('mikko_fd', hash('oppilas123'), 'student', 'Mikko Mäkinen', 'mikko.m@example.com', '044-4444444', 'ongoing', '2026-01-10', club2Id);
+    ).run('mikko_fd', hash('oppilas123'), 'student', 'Mikko MÃ¤kinen', 'mikko.m@example.com', '044-4444444', 'ongoing', '2026-01-10', club2Id);
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
     ).run('sanna_fd', hash('oppilas123'), 'student', 'Sanna Siipi', 'sanna.s@example.com', '044-5555555', 'ongoing', '2026-02-20', club2Id);
@@ -2077,8 +2077,8 @@ async function seedDatabase() {
       'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
     ).run('tommi_fd', hash('oppilas123'), 'student', 'Tommi Tuuli', 'tommi.t@example.com', '044-6666666', 'ongoing', '2025-09-15', club2Id);
 
-    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Vesivehmaa', 'Vesivehmaan lentokenttä', club2Id);
-    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Isolähde', 'Isolähteen lentopaikka', club2Id);
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Vesivehmaa', 'Vesivehmaan lentokenttÃ¤', club2Id);
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('IsolÃ¤hde', 'IsolÃ¤hteen lentopaikka', club2Id);
 
     // ============================
     // KERHO 3: Oulun Icaros Team
@@ -2090,7 +2090,7 @@ async function seedDatabase() {
 
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)'
-    ).run('Jarno', hash('Jarno123!!'), 'instructor', 'Jarno Järvinen', 'jarno@icaros.fi', '040-6661234', club3Id);
+    ).run('Jarno', hash('Jarno123!!'), 'instructor', 'Jarno JÃ¤rvinen', 'jarno.j@example.com', '040-6661234', club3Id);
 
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
@@ -2100,22 +2100,22 @@ async function seedDatabase() {
     ).run('liisa_ic', hash('oppilas123'), 'student', 'Liisa Lokki', 'liisa.l@example.com', '044-8888888', 'ongoing', '2025-11-01', club3Id);
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
-    ).run('erkki_ic', hash('oppilas123'), 'student', 'Erkki Etelävuori', 'erkki.e@example.com', '044-9999999', 'ongoing', '2025-08-15', club3Id);
+    ).run('erkki_ic', hash('oppilas123'), 'student', 'Erkki EtelÃ¤vuori', 'erkki.e@example.com', '044-9999999', 'ongoing', '2025-08-15', club3Id);
 
     await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Ahmosuo', 'Ahmosuon lentopaikka', club3Id);
     await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Kuivasmeri', 'Kuivasmeren lentopaikka', club3Id);
 
     // ============================
-    // KERHO 4: Airiston Varjoliitäjät
+    // KERHO 4: Airiston VarjoliitÃ¤jÃ¤t
     // ============================
     const club4 = await db.prepare(
       'INSERT INTO clubs (name,slug,description) VALUES (?,?,?)'
-    ).run('Airiston Varjoliitäjät', 'airisto', 'Airiston Varjoliitäjät ry');
+    ).run('Airiston VarjoliitÃ¤jÃ¤t', 'airisto', 'Airiston VarjoliitÃ¤jÃ¤t ry');
     const club4Id = club4.lastInsertRowid;
 
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email,phone,club_id) VALUES (?,?,?,?,?,?,?)'
-    ).run('Juho', hash('Juho123!!'), 'instructor', 'Juho Jokinen', 'juho@airisto.fi', '040-7771234', club4Id);
+    ).run('Juho', hash('Juho123!!'), 'instructor', 'Juho Jokinen', 'juho.j@example.com', '040-7771234', club4Id);
 
     await db.prepare(
       'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
@@ -2127,7 +2127,7 @@ async function seedDatabase() {
       'INSERT INTO users (username,password_hash,role,name,email,phone,status,course_started,club_id) VALUES (?,?,?,?,?,?,?,?,?)'
     ).run('jukka_ai', hash('oppilas123'), 'student', 'Jukka Jalohaukka', 'jukka.j@example.com', '044-3030303', 'ongoing', '2026-01-20', club4Id);
 
-    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('Oripää', 'Oripään lentopaikka', club4Id);
+    await db.prepare('INSERT INTO sites (name,description,club_id) VALUES (?,?,?)').run('OripÃ¤Ã¤', 'OripÃ¤Ã¤n lentopaikka', club4Id);
 
     // ============================
     // THEORY SECTIONS & TOPICS (same for all clubs)
@@ -2137,69 +2137,69 @@ async function seedDatabase() {
         {key:'pp1_aero_1',title:'Liitimen rakenne ja toiminta',dur:45,comment:'Koulutusopas luku 2.1'},
         {key:'pp1_aero_2',title:'Nostovoima ja vastus',dur:45,comment:'Koulutusopas luku 2.2'},
         {key:'pp1_aero_3',title:'Lentonopeudet ja suoritusarvot',dur:30,comment:'Koulutusopas luku 2.3'},
-        {key:'pp1_aero_4',title:'Sakkaus ja sen välttäminen',dur:45,comment:'Koulutusopas luku 2.4'},
-        {key:'pp1_aero_5',title:'Kääntyminen ja painonsiirto',dur:30,comment:'Koulutusopas luku 2.5'}
+        {key:'pp1_aero_4',title:'Sakkaus ja sen vÃ¤lttÃ¤minen',dur:45,comment:'Koulutusopas luku 2.4'},
+        {key:'pp1_aero_5',title:'KÃ¤Ã¤ntyminen ja painonsiirto',dur:30,comment:'Koulutusopas luku 2.5'}
       ]},
       { level:'pp1', key:'pp1_meteo', title:'Mikrometeorologia', topics:[
         {key:'pp1_meteo_1',title:'Tuulen perusteet',dur:45,comment:'Koulutusopas luku 3.1'},
-        {key:'pp1_meteo_2',title:'Terminen aktiivisuus – perusteet',dur:45,comment:'Koulutusopas luku 3.2'},
+        {key:'pp1_meteo_2',title:'Terminen aktiivisuus â perusteet',dur:45,comment:'Koulutusopas luku 3.2'},
         {key:'pp1_meteo_3',title:'Turbulenssi ja tuulengradientti',dur:30,comment:'Koulutusopas luku 3.3'},
-        {key:'pp1_meteo_4',title:'Sääennusteiden lukeminen',dur:30,comment:'Koulutusopas luku 3.4'},
-        {key:'pp1_meteo_5',title:'Paikallissääilmiöt',dur:30,comment:'Koulutusopas luku 3.5'}
+        {key:'pp1_meteo_4',title:'SÃ¤Ã¤ennusteiden lukeminen',dur:30,comment:'Koulutusopas luku 3.4'},
+        {key:'pp1_meteo_5',title:'PaikallissÃ¤Ã¤ilmiÃ¶t',dur:30,comment:'Koulutusopas luku 3.5'}
       ]},
-      { level:'pp1', key:'pp1_equip', title:'Välineet', topics:[
+      { level:'pp1', key:'pp1_equip', title:'VÃ¤lineet', topics:[
         {key:'pp1_equip_1',title:'Liitimen osat ja materiaalit',dur:45,comment:'Koulutusopas luku 4.1'},
         {key:'pp1_equip_2',title:'Valjaat ja varavarjo',dur:45,comment:'Koulutusopas luku 4.2'},
-        {key:'pp1_equip_3',title:'Kypärä ja suojavarusteet',dur:30,comment:'Koulutusopas luku 4.3'},
-        {key:'pp1_equip_4',title:'Välineiden tarkastus ja huolto',dur:45,comment:'Koulutusopas luku 4.4'}
+        {key:'pp1_equip_3',title:'KypÃ¤rÃ¤ ja suojavarusteet',dur:30,comment:'Koulutusopas luku 4.3'},
+        {key:'pp1_equip_4',title:'VÃ¤lineiden tarkastus ja huolto',dur:45,comment:'Koulutusopas luku 4.4'}
       ]},
-      { level:'pp1', key:'pp1_rules', title:'Säännöt ja ilmatila', topics:[
-        {key:'pp1_rules_1',title:'Ilmailulaki ja -määräykset',dur:45,comment:'Koulutusopas luku 5.1'},
+      { level:'pp1', key:'pp1_rules', title:'SÃ¤Ã¤nnÃ¶t ja ilmatila', topics:[
+        {key:'pp1_rules_1',title:'Ilmailulaki ja -mÃ¤Ã¤rÃ¤ykset',dur:45,comment:'Koulutusopas luku 5.1'},
         {key:'pp1_rules_2',title:'Ilmatilarakenne',dur:45,comment:'Koulutusopas luku 5.2'},
         {key:'pp1_rules_3',title:'NOTAM ja ilmailutiedotteet',dur:30,comment:'Koulutusopas luku 5.3'},
-        {key:'pp1_rules_4',title:'Väistämissäännöt',dur:30,comment:'Koulutusopas luku 5.4'},
+        {key:'pp1_rules_4',title:'VÃ¤istÃ¤missÃ¤Ã¤nnÃ¶t',dur:30,comment:'Koulutusopas luku 5.4'},
         {key:'pp1_rules_5',title:'SIL:n ohjeet ja koulutusvaatimukset',dur:45,comment:'Koulutusopas luku 5.5'}
       ]},
       { level:'pp1', key:'pp1_tech', title:'Lentotekniikka PP1', topics:[
         {key:'pp1_tech_1',title:'Maassa tapahtuva harjoittelu',dur:45,comment:'Koulutusopas luku 6.1'},
         {key:'pp1_tech_2',title:'Nousu ja laskeutuminen',dur:60,comment:'Koulutusopas luku 6.2'},
-        {key:'pp1_tech_3',title:'Suuntaohjaus ja nopeudensäätö',dur:45,comment:'Koulutusopas luku 6.3'},
+        {key:'pp1_tech_3',title:'Suuntaohjaus ja nopeudensÃ¤Ã¤tÃ¶',dur:45,comment:'Koulutusopas luku 6.3'},
         {key:'pp1_tech_4',title:'Laskeutumiskuviot',dur:45,comment:'Koulutusopas luku 6.4'},
         {key:'pp1_tech_5',title:'Top-landing harjoittelu',dur:30,comment:'Koulutusopas luku 6.5'}
       ]},
       { level:'pp1', key:'pp1_safety', title:'Turvallisuus PP1', topics:[
-        {key:'pp1_safety_1',title:'Riskienhallinta ja päätöksenteko',dur:45,comment:'Koulutusopas luku 7.1'},
-        {key:'pp1_safety_2',title:'Hätätilanteet – liitimen hallinta',dur:60,comment:'Koulutusopas luku 7.2'},
-        {key:'pp1_safety_3',title:'Varavarjon käyttö',dur:45,comment:'Koulutusopas luku 7.3'},
+        {key:'pp1_safety_1',title:'Riskienhallinta ja pÃ¤Ã¤tÃ¶ksenteko',dur:45,comment:'Koulutusopas luku 7.1'},
+        {key:'pp1_safety_2',title:'HÃ¤tÃ¤tilanteet â liitimen hallinta',dur:60,comment:'Koulutusopas luku 7.2'},
+        {key:'pp1_safety_3',title:'Varavarjon kÃ¤yttÃ¶',dur:45,comment:'Koulutusopas luku 7.3'},
         {key:'pp1_safety_4',title:'Ensiapu lentopaikalla',dur:45,comment:'Koulutusopas luku 7.4'},
         {key:'pp1_safety_5',title:'Onnettomuusraportointi',dur:30,comment:'Koulutusopas luku 7.5'}
       ]},
-      { level:'pp2', key:'pp2_aero_adv', title:'Aerodynamiikka (syventävä)', topics:[
+      { level:'pp2', key:'pp2_aero_adv', title:'Aerodynamiikka (syventÃ¤vÃ¤)', topics:[
         {key:'pp2_aero_1',title:'Profiilipolaaridiagrammit',dur:45,comment:'Koulutusopas luku 8.1'},
         {key:'pp2_aero_2',title:'Liitosuhde ja sink rate',dur:45,comment:'Koulutusopas luku 8.2'},
-        {key:'pp2_aero_3',title:'Wingover ja SAT – aerodynamiikka',dur:60,comment:'Koulutusopas luku 8.3'},
+        {key:'pp2_aero_3',title:'Wingover ja SAT â aerodynamiikka',dur:60,comment:'Koulutusopas luku 8.3'},
         {key:'pp2_aero_4',title:'Speed system ja trim',dur:30,comment:'Koulutusopas luku 8.4'},
         {key:'pp2_aero_5',title:'EN-luokitus ja turvallisuustestit',dur:30,comment:'Koulutusopas luku 8.5'},
         {key:'pp2_aero_6',title:'Siipiprofiilien vertailu',dur:45,comment:'Koulutusopas luku 8.6'}
       ]},
-      { level:'pp2', key:'pp2_meteo_adv', title:'Meteorologia (syventävä)', topics:[
-        {key:'pp2_meteo_1',title:'Synoptiikka ja sääkartat',dur:60,comment:'Koulutusopas luku 9.1'},
-        {key:'pp2_meteo_2',title:'Termiikka – kehittynyt teoria',dur:60,comment:'Koulutusopas luku 9.2'},
+      { level:'pp2', key:'pp2_meteo_adv', title:'Meteorologia (syventÃ¤vÃ¤)', topics:[
+        {key:'pp2_meteo_1',title:'Synoptiikka ja sÃ¤Ã¤kartat',dur:60,comment:'Koulutusopas luku 9.1'},
+        {key:'pp2_meteo_2',title:'Termiikka â kehittynyt teoria',dur:60,comment:'Koulutusopas luku 9.2'},
         {key:'pp2_meteo_3',title:'Inversiot ja stabiilisuus',dur:45,comment:'Koulutusopas luku 9.3'},
         {key:'pp2_meteo_4',title:'Vuoristoaallot ja roottori',dur:45,comment:'Koulutusopas luku 9.4'},
-        {key:'pp2_meteo_5',title:'Ukkosrintamat ja vaaralliset säätilat',dur:45,comment:'Koulutusopas luku 9.5'},
-        {key:'pp2_meteo_6',title:'Lentosään arviointi ja Go/No-Go',dur:30,comment:'Koulutusopas luku 9.6'}
+        {key:'pp2_meteo_5',title:'Ukkosrintamat ja vaaralliset sÃ¤Ã¤tilat',dur:45,comment:'Koulutusopas luku 9.5'},
+        {key:'pp2_meteo_6',title:'LentosÃ¤Ã¤n arviointi ja Go/No-Go',dur:30,comment:'Koulutusopas luku 9.6'}
       ]},
       { level:'pp2', key:'pp2_nav', title:'Navigointi', topics:[
         {key:'pp2_nav_1',title:'Kartat ja koordinaatistot',dur:45,comment:'Koulutusopas luku 10.1'},
         {key:'pp2_nav_2',title:'GPS-navigointi ilmassa',dur:45,comment:'Koulutusopas luku 10.2'},
-        {key:'pp2_nav_3',title:'Reittisuunnittelu – XC',dur:60,comment:'Koulutusopas luku 10.3'},
+        {key:'pp2_nav_3',title:'Reittisuunnittelu â XC',dur:60,comment:'Koulutusopas luku 10.3'},
         {key:'pp2_nav_4',title:'Ilmatilarajat ja karttapalvelut',dur:30,comment:'Koulutusopas luku 10.4'},
         {key:'pp2_nav_5',title:'Vario ja flight computer',dur:45,comment:'Koulutusopas luku 10.5'}
       ]},
       { level:'pp2', key:'pp2_tech_adv', title:'Lentotekniikka PP2', topics:[
         {key:'pp2_tech_1',title:'Termiikkiin keskittyminen',dur:60,comment:'Koulutusopas luku 11.1'},
-        {key:'pp2_tech_2',title:'Dynaamiset käännökset',dur:45,comment:'Koulutusopas luku 11.2'},
+        {key:'pp2_tech_2',title:'Dynaamiset kÃ¤Ã¤nnÃ¶kset',dur:45,comment:'Koulutusopas luku 11.2'},
         {key:'pp2_tech_3',title:'Big ears ja B-stall',dur:45,comment:'Koulutusopas luku 11.3'},
         {key:'pp2_tech_4',title:'Spiral dive ja exit',dur:60,comment:'Koulutusopas luku 11.4'},
         {key:'pp2_tech_5',title:'Laskeutuminen ahtaisiin paikkoihin',dur:45,comment:'Koulutusopas luku 11.5'},
@@ -2208,24 +2208,24 @@ async function seedDatabase() {
       { level:'pp2', key:'pp2_xc', title:'Matkalento (XC)', topics:[
         {key:'pp2_xc_1',title:'XC-lennon suunnittelu',dur:60,comment:'Koulutusopas luku 12.1'},
         {key:'pp2_xc_2',title:'Termiikkistrategia',dur:60,comment:'Koulutusopas luku 12.2'},
-        {key:'pp2_xc_3',title:'Siirtymälennot ja liito-optimointi',dur:45,comment:'Koulutusopas luku 12.3'},
-        {key:'pp2_xc_4',title:'XC-kilpailut ja FAI-säännöt',dur:45,comment:'Koulutusopas luku 12.4'},
-        {key:'pp2_xc_5',title:'Lentopäiväkirja ja dokumentointi',dur:30,comment:'Koulutusopas luku 12.5'}
+        {key:'pp2_xc_3',title:'SiirtymÃ¤lennot ja liito-optimointi',dur:45,comment:'Koulutusopas luku 12.3'},
+        {key:'pp2_xc_4',title:'XC-kilpailut ja FAI-sÃ¤Ã¤nnÃ¶t',dur:45,comment:'Koulutusopas luku 12.4'},
+        {key:'pp2_xc_5',title:'LentopÃ¤ivÃ¤kirja ja dokumentointi',dur:30,comment:'Koulutusopas luku 12.5'}
       ]},
       { level:'pp2', key:'pp2_safety_adv', title:'Turvallisuus PP2', topics:[
         {key:'pp2_safety_1',title:'SIV-kurssin teoria',dur:60,comment:'Koulutusopas luku 13.1'},
         {key:'pp2_safety_2',title:'Kasaantuminen ja cravat',dur:45,comment:'Koulutusopas luku 13.2'},
         {key:'pp2_safety_3',title:'Autorotaatio ja full stall',dur:45,comment:'Koulutusopas luku 13.3'},
-        {key:'pp2_safety_4',title:'Läheltä piti -raportointi',dur:30,comment:'Koulutusopas luku 13.4'},
+        {key:'pp2_safety_4',title:'LÃ¤heltÃ¤ piti -raportointi',dur:30,comment:'Koulutusopas luku 13.4'},
         {key:'pp2_safety_5',title:'Henkinen valmentautuminen',dur:45,comment:'Koulutusopas luku 13.5'}
       ]},
-      { level:'pp2', key:'pp2_human', title:'Inhimilliset tekijät', topics:[
+      { level:'pp2', key:'pp2_human', title:'Inhimilliset tekijÃ¤t', topics:[
         {key:'pp2_human_1',title:'Ihmisen suorituskyky ja rajoitukset',dur:45,comment:'Koulutusopas luku 14.1'},
-        {key:'pp2_human_2',title:'Päätöksenteko lennolla (ADM)',dur:45,comment:'Koulutusopas luku 14.2'},
+        {key:'pp2_human_2',title:'PÃ¤Ã¤tÃ¶ksenteko lennolla (ADM)',dur:45,comment:'Koulutusopas luku 14.2'},
         {key:'pp2_human_3',title:'Stressinhallinta',dur:30,comment:'Koulutusopas luku 14.3'},
-        {key:'pp2_human_4',title:'Fyysinen kunto ja lentäminen',dur:30,comment:'Koulutusopas luku 14.4'},
+        {key:'pp2_human_4',title:'Fyysinen kunto ja lentÃ¤minen',dur:30,comment:'Koulutusopas luku 14.4'},
         {key:'pp2_human_5',title:'Hypoksia ja kylmyys',dur:45,comment:'Koulutusopas luku 14.5'},
-        {key:'pp2_human_6',title:'Ryhmädynamiikka lentopaikalla',dur:30,comment:'Koulutusopas luku 14.6'}
+        {key:'pp2_human_6',title:'RyhmÃ¤dynamiikka lentopaikalla',dur:30,comment:'Koulutusopas luku 14.6'}
       ]}
     ];
 
@@ -2312,6 +2312,24 @@ initDb().then(async () => {
     await fixDoubleEncodedUtf8();
   } catch(e) {
     console.error('UTF-8 fix failed:', e.message);
+  }
+
+  // Replace real instructor emails with fictional ones (privacy)
+  try {
+    const db = getDb();
+    const emailUpdates = [
+      ['taavi.t@example.com', 'taavi@hameenkyronlentokerho.fi'],
+      ['marko.s@example.com', 'marko.sorvamaa@qtec.fi'],
+      ['vaiski.v@example.com', 'vaiski@flydaddy.fi'],
+      ['jarno.j@example.com', 'jarno@icaros.fi'],
+      ['juho.j@example.com', 'juho@airisto.fi']
+    ];
+    for (const [newEmail, oldEmail] of emailUpdates) {
+      await db.prepare('UPDATE users SET email = ? WHERE email = ?').run(newEmail, oldEmail);
+    }
+    console.log('Instructor emails updated to fictional addresses');
+  } catch(e) {
+    console.error('Email migration failed:', e.message);
   }
 
   app.listen(PORT, () => {
