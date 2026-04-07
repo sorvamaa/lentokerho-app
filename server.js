@@ -88,7 +88,14 @@ const apiLimiter = rateLimit({
 app.use('/api/', apiLimiter);
 
 // Middleware
-app.use(express.json());
+app.use((req, res, next) => {
+  express.json()(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: 'Invalid JSON in request body' });
+    }
+    next();
+  });
+});
 app.use(express.static('public'));
 
 // ============================================================================
@@ -200,6 +207,30 @@ const getUserWithoutPassword = async (userId) => {
   const db = getDb();
   return await db.prepare('SELECT id, username, email, name, role, phone FROM users WHERE id = ?').get(userId);
 };
+
+// Middleware: Sanitize request body strings to prevent XSS
+app.use('/api', (req, res, next) => {
+  if (req.body && typeof req.body === 'object') {
+    const sanitize = (v) => typeof v === 'string' ? v.replace(/</g, '&lt;').replace(/>/g, '&gt;') : v;
+    for (const k of Object.keys(req.body)) {
+      if (k === 'password' || k === 'newPassword' || k === 'currentPassword') continue;
+      req.body[k] = sanitize(req.body[k]);
+    }
+  }
+  next();
+});
+
+// Middleware: Validate URL parameters
+app.use('/api', (req, res, next) => {
+  const segments = req.path.split('/');
+  for (const seg of segments) {
+    if (!seg || /^[a-zA-Z_-]+$/.test(seg)) continue;
+    if (/[^0-9a-zA-Z._-]/.test(seg)) {
+      return res.status(400).json({ error: 'Invalid parameter in URL' });
+    }
+  }
+  next();
+});
 
 // ============================================================================
 // AUTH ROUTES
@@ -634,12 +665,13 @@ app.post('/api/students/:id/flights', requireAuth, async (req, res) => {
     return res.status(404).json({ error: 'Student not found' });
   }
 
-  // Check authorization: instructor or student adding their own flight
+  // Check authorization: admin, instructor or student adding their own flight
   const requestingUser = await db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+  const isAdmin = requestingUser?.role === 'admin';
   const isInstructor = requestingUser?.role === 'instructor';
   const isOwnFlight = parseInt(id) === req.session.userId;
 
-  if (!isInstructor && !isOwnFlight) {
+  if (!isAdmin && !isInstructor && !isOwnFlight) {
     return res.status(403).json({ error: 'You can only add flights for your own account' });
   }
 
