@@ -2267,8 +2267,9 @@ app.post('/api/seed', async (req, res) => {
 async function fixDoubleEncodedUtf8() {
   const db = getDb();
   try {
-    const test = await db.prepare("SELECT name FROM users WHERE name LIKE '%\u00c3%' LIMIT 1").get();
-    if (!test) {
+    const testName = await db.prepare("SELECT name FROM users WHERE name LIKE '%\u00c3%' LIMIT 1").get();
+    const testUser = await db.prepare("SELECT username FROM users WHERE username LIKE '%\u00c3%' LIMIT 1").get();
+    if (!testName && !testUser) {
       return;
     }
     console.log('Fixing double-encoded UTF-8 characters in database...');
@@ -2336,7 +2337,7 @@ initDb().then(async () => {
   // Fix Väiski password hash
   try {
     const db = getDb();
-    const vaiski = await db.prepare("SELECT id FROM users WHERE username = 'Väiski'").get();
+    const vaiski = await db.prepare("SELECT id FROM users WHERE username LIKE '%iski' AND role = 'instructor' AND club_id = 2").get();
     if (vaiski) {
       const correctHash = bcrypt.hashSync('Viski123!!', 12);
       await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(correctHash, vaiski.id);
@@ -2353,4 +2354,5 @@ initDb().then(async () => {
   console.error('Failed to initialize database:', err);
   process.exit(1);
 });
+
 
