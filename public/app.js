@@ -339,6 +339,7 @@ function setupNavigation() {
   } else {
     // Add clubs link for admin users
     if (currentUser && currentUser.role === 'admin') {
+      if (sidebarMenu.querySelector('[data-nav-link="clubs"]')) return;
       const clubsLi = document.createElement('li');
       clubsLi.innerHTML = '<a href="#clubs" class="nav-link" data-nav-link="clubs">Kerhot</a>';
 
