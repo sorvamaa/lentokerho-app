@@ -704,7 +704,7 @@ async function renderClubStudentsProgress() {
           ${progressBar(low, LOW_TOTAL, 'Matalat')}
           ${progressBar(high, HIGH_TOTAL, 'Korkeat')}
           <div style="display: flex; gap: 14px; margin-top: 10px; font-size: 0.85em; color: #555;">
-            <span>${checkMark(approval)} Tarkistuslento</span>
+            <span>${checkMark(approval)} Tarkistuslento${approval && s.approval_flight_date ? ' (' + formatDate(s.approval_flight_date) + ')' : ''}</span>
             <span>${checkMark(pp2Exam)} PP2-tentti${pp2Exam && s.pp2_exam_date ? ' (' + formatDate(s.pp2_exam_date) + ')' : ''}</span>
           </div>
         </div>
@@ -900,7 +900,7 @@ async function loadFlightsTab(studentId) {
       <div>${createProgressBar(stats.high_flights || 0, 40, 'Korkeita lentoja')}</div>
       <div>${createProgressBar(stats.high_days || 0, 7, 'Korkeita päiviä')}</div>
       <div style="display: flex; align-items: center;">
-        ${stats.has_approval ? '<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">Tarkistuslento suoritettu</span>' : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">Tarkistuslento vaaditaan</span>'}
+        ${stats.has_approval ? `<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">Tarkistuslento suoritettu${stats.approval_flight_date ? ' ' + formatDate(stats.approval_flight_date) : ''}</span>` : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">Tarkistuslento vaaditaan</span>'}
       </div>
       <div style="display: flex; align-items: center;">
         ${stats.pp2_exam_passed ? `<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">PP2-koe suoritettu${stats.pp2_exam_date ? ' ' + formatDate(stats.pp2_exam_date) : ''}</span>` : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">PP2-koe suorittamatta</span>'}

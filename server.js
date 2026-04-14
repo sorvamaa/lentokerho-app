@@ -437,6 +437,10 @@ const getStudentStats = async (studentId) => {
     'SELECT COUNT(*) as count FROM flights WHERE student_id = ? AND is_approval_flight = 1'
   ).get(studentId);
 
+  const approvalFlight = await db.prepare(
+    'SELECT date FROM flights WHERE student_id = ? AND is_approval_flight = 1 ORDER BY date DESC LIMIT 1'
+  ).get(studentId);
+
   // PP2 exam status
   const pp2Exam = await db.prepare(
     'SELECT pp2_exam_passed, pp2_exam_date FROM users WHERE id = ?'
@@ -458,6 +462,7 @@ const getStudentStats = async (studentId) => {
     total_flights: parseInt(totalFlights.count),
     last_flight_date: lastFlight ? lastFlight.date : null,
     has_approval: parseInt(hasApproval.count) > 0,
+    approval_flight_date: approvalFlight ? approvalFlight.date : null,
     pp2_exam_passed: pp2Exam ? pp2Exam.pp2_exam_passed : 0,
     pp2_exam_date: pp2Exam ? pp2Exam.pp2_exam_date : null,
     theory_pp1: parseInt(theoryPp1.count),
@@ -2329,16 +2334,23 @@ async function fixTheoryUtf8() {
 async function fixTheoryDashes() {
   try {
     const pool = getDb().getPool();
-    const enBad = '\u00e2\u00c2\u0080\u00c2\u0093';
-    const emBad = '\u00e2\u00c2\u0080\u00c2\u0094';
+    // Multiple mojibake variants observed in production data. Each pair is
+    // [broken sequence, correct replacement].
+    const pairs = [
+      ['\u00e2\u00c2\u0080\u00c2\u0093', '\u2013'], // 5-char en-dash
+      ['\u00e2\u00c2\u0080\u00c2\u0094', '\u2014'], // 5-char em-dash
+      ['\u00e2\u0080\u0093',             '\u2013'], // 3-char en-dash
+      ['\u00e2\u0080\u0094',             '\u2014']  // 3-char em-dash
+    ];
     const fixes = [
       `UPDATE theory_topics_def SET title   = REPLACE(title,   $1, $2) WHERE title   LIKE '%' || $1 || '%'`,
       `UPDATE theory_topics_def SET comment = REPLACE(comment, $1, $2) WHERE comment LIKE '%' || $1 || '%'`,
       `UPDATE theory_sections   SET title   = REPLACE(title,   $1, $2) WHERE title   LIKE '%' || $1 || '%'`
     ];
     for (const sql of fixes) {
-      await pool.query(sql, [enBad, '\u2013']);
-      await pool.query(sql, [emBad, '\u2014']);
+      for (const [bad, good] of pairs) {
+        await pool.query(sql, [bad, good]);
+      }
     }
   } catch(e) {
     console.error('Theory dash fix failed (non-critical):', e.message);
