@@ -320,11 +320,34 @@ async function handleResetRequest() {
 // NAVIGATION
 // ============================================================================
 
+function toggleSidebar(forceState) {
+  const sidebar = document.getElementById('sidebar');
+  const backdrop = document.getElementById('sidebar-backdrop');
+  const btn = document.getElementById('menu-toggle-btn');
+  if (!sidebar) return;
+  const willOpen = forceState !== undefined ? forceState : !sidebar.classList.contains('visible');
+  sidebar.classList.toggle('visible', willOpen);
+  if (backdrop) backdrop.classList.toggle('visible', willOpen);
+  if (btn) btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+}
+
 function setupNavigation() {
   // Hash change listener (only set once)
   if (!window._hashListenerSet) {
     window.addEventListener('hashchange', navigate);
     window._hashListenerSet = true;
+  }
+
+  // Mobile menu toggle (only bind once)
+  if (!window._menuToggleSet) {
+    const btn = document.getElementById('menu-toggle-btn');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (btn) btn.addEventListener('click', () => toggleSidebar());
+    if (backdrop) backdrop.addEventListener('click', () => toggleSidebar(false));
+    document.getElementById('sidebar-menu')?.addEventListener('click', (e) => {
+      if (e.target.closest('.nav-link')) toggleSidebar(false);
+    });
+    window._menuToggleSet = true;
   }
 
   const sidebarMenu = document.getElementById('sidebar-menu');
@@ -890,7 +913,7 @@ async function loadFlightsTab(studentId) {
     </div>
 
     <div style="overflow-x: auto;">
-      <table style="width: 100%; border-collapse: collapse;">
+      <table class="mobile-stack" style="width: 100%; border-collapse: collapse;">
         <thead>
           <tr style="background: #f8f9fa; text-align: left;">
             <th style="padding: 10px;">Päivä</th>
@@ -912,14 +935,14 @@ async function loadFlightsTab(studentId) {
       const approvalTag = flight.is_approval_flight ? ' <span style="background: #28a745; color: #fff; padding: 1px 6px; border-radius: 3px; font-size: 0.8em;">Tarkistus</span>' : '';
       html += `
         <tr style="border-bottom: 1px solid #dee2e6;">
-          <td style="padding: 10px;">${formatDate(flight.date)}</td>
-          <td style="padding: 10px;">${escapeHtml(flight.site_name || '-')}</td>
-          <td style="padding: 10px;"><span style="background: ${typeBg}; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">${typeLabel}</span>${approvalTag}</td>
-          <td style="padding: 10px;">${flight.flight_count}</td>
-          <td style="padding: 10px;">${escapeHtml(flight.exercises || '-')}</td>
-          <td style="padding: 10px;">${escapeHtml(flight.notes || '-')}</td>
+          <td data-label="Päivä" style="padding: 10px;">${formatDate(flight.date)}</td>
+          <td data-label="Paikka" style="padding: 10px;">${escapeHtml(flight.site_name || '-')}</td>
+          <td data-label="Tyyppi" style="padding: 10px;"><span style="background: ${typeBg}; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">${typeLabel}</span>${approvalTag}</td>
+          <td data-label="Lentoja" style="padding: 10px;">${flight.flight_count}</td>
+          <td data-label="Harjoitukset" style="padding: 10px;">${escapeHtml(flight.exercises || '-')}</td>
+          <td data-label="Muistiinpanot" style="padding: 10px;">${escapeHtml(flight.notes || '-')}</td>
           ${isInstructor ? `
-            <td style="padding: 10px;">
+            <td data-label="Toiminnot" style="padding: 10px;">
               <button class="btn btn-small btn-danger" onclick="deleteFlightConfirm(${flight.id})">Poista</button>
             </td>
           ` : ''}

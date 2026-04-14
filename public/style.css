@@ -89,6 +89,21 @@ a:hover {
   z-index: 100;
 }
 
+.header-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: var(--spacing-md);
+}
+
+.logo-section {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+}
+
 .header-brand {
   display: flex;
   align-items: center;
@@ -157,9 +172,23 @@ a:hover {
   background: none;
   border: none;
   color: var(--color-white);
-  font-size: 24px;
+  font-size: 28px;
+  line-height: 1;
   cursor: pointer;
-  padding: 0;
+  padding: 8px 12px;
+  margin-right: 8px;
+}
+
+.sidebar-backdrop {
+  display: none;
+  position: fixed;
+  inset: 56px 0 0 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 98;
+}
+
+.sidebar-backdrop.visible {
+  display: block;
 }
 
 /* ============================================================================
@@ -1354,23 +1383,27 @@ summary::marker {
 @media (max-width: 768px) {
   /* Header adjustments for mobile */
   .header {
-    padding: 0 var(--spacing-md);
+    padding: 0 var(--spacing-sm);
   }
 
   .btn-menu-toggle {
-    display: flex;
-    margin-right: var(--spacing-md);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  .header-user-section {
-    display: none;
+  .brand-text {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
-  /* Sidebar hidden on mobile */
+  /* Sidebar hidden on mobile, slides in when .visible */
   .sidebar {
     transform: translateX(-100%);
     transition: transform var(--transition-base);
-    width: 250px;
+    width: 260px;
     box-shadow: var(--shadow-lg);
   }
 
@@ -1382,6 +1415,47 @@ summary::marker {
   .main-content {
     margin-left: 0;
     padding: var(--spacing-md);
+  }
+
+  /* Larger tap targets in nav */
+  .sidebar-nav a {
+    padding: 14px 18px;
+    font-size: 16px;
+  }
+
+  /* Stackable flight rows */
+  .mobile-stack thead {
+    display: none;
+  }
+  .mobile-stack, .mobile-stack tbody, .mobile-stack tr, .mobile-stack td {
+    display: block;
+    width: 100%;
+  }
+  .mobile-stack tr {
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+    background: #fff;
+  }
+  .mobile-stack td {
+    padding: 4px 0 !important;
+    border: none !important;
+  }
+  .mobile-stack td[data-label]::before {
+    content: attr(data-label) ": ";
+    font-weight: 600;
+    color: #555;
+    margin-right: 6px;
+  }
+  .mobile-stack td[data-label="Päivä"]::before,
+  .mobile-stack td[data-label="Toiminnot"]::before {
+    content: none;
+  }
+  .mobile-stack td[data-label="Päivä"] {
+    font-weight: 600;
+    font-size: 1.05em;
+    margin-bottom: 4px;
   }
 
   /* Grid adjustments */
