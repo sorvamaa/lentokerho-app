@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PilottiPolku – Käyttöohje ohjaajalle</title>
+  <style>
+  :root {
+    --blue-dark: #1A3A5C;
+    --blue-mid: #2E6DA4;
+    --gray-bg: #F2F5F9;
+    --text: #1F2937;
+    --muted: #6B7280;
+    --border: #E5E7EB;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--text);
+    background: var(--gray-bg);
+    margin: 0;
+    line-height: 1.6;
+  }
+  .header {
+    background: var(--blue-dark);
+    color: #fff;
+    padding: 20px 24px;
+    text-align: center;
+  }
+  .header h1 { margin: 0 0 6px 0; font-size: 26px; }
+  .header .subtitle { opacity: 0.85; font-size: 15px; font-style: italic; }
+  .container {
+    max-width: 820px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 40px 48px 64px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  h1 {
+    color: var(--blue-dark);
+    border-bottom: 2px solid var(--blue-mid);
+    padding-bottom: 6px;
+    margin-top: 42px;
+    font-size: 24px;
+  }
+  h2 { color: var(--blue-mid); margin-top: 28px; font-size: 19px; }
+  p { margin: 10px 0; }
+  ul { margin: 10px 0 16px 0; }
+  li { margin: 4px 0; }
+  figure {
+    margin: 20px 0 24px;
+    text-align: center;
+  }
+  figure img {
+    width: 100%;
+    height: auto;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  }
+  figcaption {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .toc {
+    background: #F8FAFC;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 14px 20px;
+    margin: 20px 0 30px;
+  }
+  .toc h2 { margin: 0 0 8px 0; font-size: 15px; color: var(--text); }
+  .toc ul { margin: 0; padding-left: 18px; list-style: none; }
+  .toc li::before { content: "›  "; color: var(--muted); }
+  .toc a { color: var(--blue-mid); text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
+  .backlink {
+    display: inline-block;
+    margin-top: 24px;
+    color: var(--blue-mid);
+    text-decoration: none;
+  }
+  .backlink:hover { text-decoration: underline; }
+  @media (max-width: 640px) {
+    .container { padding: 24px 18px 48px; }
+    .header { padding: 16px; }
+    .header h1 { font-size: 20px; }
+  }
+</style>
+</head>
+<body>
+  <header class="header">
+    <h1>PilottiPolku – Käyttöohje ohjaajalle</h1>
+    <div class="subtitle">Varjoliidon koulutussovellus lentokerhoille</div>
+  </header>
+  <main class="container">
+<nav class="toc">
+  <h2>Sisällys</h2>
+  <ul>
+    <li><a href="#tervetuloa">Tervetuloa</a></li>
+    <li><a href="#1-kirjautuminen">1. Kirjautuminen</a></li>
+    <li><a href="#2-paanakyma-dashboard">2. Päänäkymä (Dashboard)</a></li>
+    <li><a href="#3-oppilaat">3. Oppilaat</a></li>
+    <li><a href="#4-lennon-kirjaaminen">4. Lennon kirjaaminen</a></li>
+    <li><a href="#5-oppitunnit">5. Oppitunnit</a></li>
+    <li><a href="#6-lentopaikat">6. Lentopaikat</a></li>
+    <li><a href="#7-teoria">7. Teoria</a></li>
+    <li><a href="#8-kaytto-mobiilissa">8. Käyttö mobiilissa</a></li>
+    <li><a href="#9-vinkkeja">9. Vinkkejä</a></li>
+    <li><a href="#10-ongelmatilanteet">10. Ongelmatilanteet</a></li>
+  </ul>
+</nav>
+
+<h1 id="tervetuloa">Tervetuloa</h1>
+
+<p>PilottiPolku on lentokerhon koulutusjärjestelmä, jossa ohjaaja voi seurata oppilaidensa edistymistä, kirjata lentoja, hallita oppitunteja ja merkitä teoria-aiheita suoritetuiksi. Tämä ohje kertoo, miten pääset alkuun ja mistä löydät tärkeimmät toiminnot.</p>
+
+<p>Sovellus toimii selaimessa osoitteessa https://pilottipolku.up.railway.app. Kaikki näkymät ovat suomeksi ja mukautuvat myös puhelimen ruudulle.</p>
+
+<h1 id="1-kirjautuminen">1. Kirjautuminen</h1>
+
+<p>Avaa selain ja mene sovelluksen osoitteeseen. Kirjautumislomake kysyy käyttäjänimen ja salasanan, jotka saat kerhon pääkäyttäjältä.</p>
+
+<figure>
+  <img src="img/01-login.png" alt="Kuva 1. Kirjautumisnäkymä." style="max-width: 640px;">
+  <figcaption>Kuva 1. Kirjautumisnäkymä.</figcaption>
+</figure>
+
+<p>Ensimmäisen kirjautumisen jälkeen tuotantoympäristössä järjestelmä voi vaatia salasanan vaihtoa. Syötä nykyinen salasana ja uusi, vähintään 8 merkkiä pitkä salasana. Jos unohdit salasanasi, käytä &quot;Unohtuiko salasana?&quot; -linkkiä — saat palautuslinkin sähköpostiisi.</p>
+
+<h1 id="2-paanakyma-dashboard">2. Päänäkymä (Dashboard)</h1>
+
+<p>Kirjautumisen jälkeen näet Dashboardin, joka kokoaa kerhosi tilanteen yhteen näkymään: aktiivisten oppilaiden määrä, viimeisimmät tapahtumat ja pikalinkit usein käytettyihin toimintoihin.</p>
+
+<figure>
+  <img src="img/instructor-01-dashboard.png" alt="Kuva 2. Ohjaajan Dashboard." style="max-width: 640px;">
+  <figcaption>Kuva 2. Ohjaajan Dashboard.</figcaption>
+</figure>
+
+<h1 id="3-oppilaat">3. Oppilaat</h1>
+
+<p>Vasemman sivuvalikon &quot;Oppilaat&quot;-linkistä aukeaa kerhosi oppilaiden listanäkymä. Jokaisesta oppilaasta näet statuksen, teorian PP1- ja PP2-edistymispalkit, matalien ja korkeiden lentojen määrän sekä tarkistuslennon ja PP2-kokeen tilan. Kun oppilaalla on kaikki valmista, kortin oikeaan yläkulmaan ilmestyy vihreä piste.</p>
+
+<figure>
+  <img src="img/instructor-02-oppilaat.png" alt="Kuva 3. Kerhon oppilaat -näkymä edistymispalkkeineen." style="max-width: 640px;">
+  <figcaption>Kuva 3. Kerhon oppilaat -näkymä edistymispalkkeineen.</figcaption>
+</figure>
+
+<p>Klikkaa oppilaan korttia avataksesi oppilaan yksityiskohtaisen näkymän. Siellä näet kaikki lennot, teorian, varusteet ja liitteet.</p>
+
+<figure>
+  <img src="img/instructor-03-oppilaan-tiedot.png" alt="Kuva 4. Oppilaan yksityiskohtainen näkymä." style="max-width: 640px;">
+  <figcaption>Kuva 4. Oppilaan yksityiskohtainen näkymä.</figcaption>
+</figure>
+
+<h1 id="4-lennon-kirjaaminen">4. Lennon kirjaaminen</h1>
+
+<p>Oppilaan tietonäkymässä on &quot;+ Lisää lento&quot; -painike. Painikkeen takaa aukeaa lomake, johon syötetään päivä, lentopaikka, tyyppi (matala/korkea), lentojen määrä, sää, harjoitukset ja muistiinpanot. Jos lento on tarkistuslento, ruksi &quot;Tarkistuslento&quot;-valintaruutu — päivämäärä tallentuu oppilaan tarkistuslentotietoon.</p>
+
+<figure>
+  <img src="img/instructor-04-lennon-lisays.png" alt="Kuva 5. Lennon lisäyslomake." style="max-width: 640px;">
+  <figcaption>Kuva 5. Lennon lisäyslomake.</figcaption>
+</figure>
+
+<p>Tallennuksen jälkeen lento näkyy oppilaan lentolistassa ja päivittää edistymispalkkeja. Voit poistaa virheellisen lennon lentolistan &quot;Poista&quot;-painikkeella.</p>
+
+<h1 id="5-oppitunnit">5. Oppitunnit</h1>
+
+<p>Oppituntinäkymässä voit luoda uusia oppitunteja, lisätä niihin osallistuvia oppilaita ja merkitä käsiteltyjä teoria-aiheita. Oppitunnit näkyvät myös audit-lokissa.</p>
+
+<figure>
+  <img src="img/instructor-05-oppitunnit.png" alt="Kuva 6. Oppitunnit-näkymä." style="max-width: 640px;">
+  <figcaption>Kuva 6. Oppitunnit-näkymä.</figcaption>
+</figure>
+
+<h1 id="6-lentopaikat">6. Lentopaikat</h1>
+
+<p>Hallinnoi kerhosi lentopaikkoja &quot;Lentopaikat&quot;-näkymässä. Voit lisätä, muokata ja poistaa paikkoja. Lentopaikkoja käytetään lentokirjausten lomakkeessa.</p>
+
+<figure>
+  <img src="img/instructor-06-lentopaikat.png" alt="Kuva 7. Lentopaikat-näkymä." style="max-width: 640px;">
+  <figcaption>Kuva 7. Lentopaikat-näkymä.</figcaption>
+</figure>
+
+<h1 id="7-teoria">7. Teoria</h1>
+
+<p>Teoria on jaettu PP1- ja PP2-tasoihin, jotka sisältävät osioita ja yksittäisiä aiheita. Ohjaajana voit merkitä aiheen suoritetuksi oppilaalle oppitunnin tai yksittäisen merkinnän kautta. Pääkäyttäjä voi myös muokata teorian rakennetta.</p>
+
+<figure>
+  <img src="img/instructor-07-teoria.png" alt="Kuva 8. Teoria-näkymä." style="max-width: 640px;">
+  <figcaption>Kuva 8. Teoria-näkymä.</figcaption>
+</figure>
+
+<h1 id="8-kaytto-mobiilissa">8. Käyttö mobiilissa</h1>
+
+<p>Kun käytät sovellusta puhelimella, sivuvalikko piiloutuu ja vasempaan yläkulmaan ilmestyy hampurilaispainike (☰). Paina sitä avataksesi valikon. Oppilaat-näkymässä kortit muuttuvat pystysuuntaisiksi ja lentolista pinoutuu helposti luettaviksi korteiksi.</p>
+
+<figure>
+  <img src="img/instructor-08-mobiili-oppilaat.png" alt="Kuva 9. Oppilaat-näkymä mobiilissa." style="max-width: 320px;">
+  <figcaption>Kuva 9. Oppilaat-näkymä mobiilissa.</figcaption>
+</figure>
+
+<figure>
+  <img src="img/instructor-09-mobiili-valikko.png" alt="Kuva 10. Hampurilaispainikkeesta avautuva sivuvalikko." style="max-width: 320px;">
+  <figcaption>Kuva 10. Hampurilaispainikkeesta avautuva sivuvalikko.</figcaption>
+</figure>
+
+<h1 id="9-vinkkeja">9. Vinkkejä</h1>
+
+<ul>
+  <li>Käytä &quot;Kesken&quot;-suodatinta oppilasnäkymässä nähdäksesi vain aktiiviset oppilaat.</li>
+  <li>Oppilaan status &quot;Valmis&quot; vaatii suoritetun PP2-kokeen — jos et pääse tallentamaan, tarkista että PP2-koe on merkitty suoritetuksi.</li>
+  <li>Tarkistuslennon ja PP2-kokeen suorituspäivät näkyvät oppilaan statuksen vieressä ja oppilaan detail-näkymässä.</li>
+  <li>Liian monta epäonnistunutta kirjautumisyritystä lukitsee IP-osoitteen 15 minuutiksi — odota tai käytä toista verkkoa.</li>
+</ul>
+
+<h1 id="10-ongelmatilanteet">10. Ongelmatilanteet</h1>
+
+<p>Jos kirjautuminen ei onnistu, varmista käyttäjänimen kirjoitusasu (ääkköset huomioiden). Jos sivu ei reagoi, päivitä selain (F5 / Ctrl+R). Pidempiaikaisissa ongelmissa ota yhteyttä kerhon pääkäyttäjään tai sovelluksen ylläpitoon.</p>
+
+    <a href="/" class="backlink">← Takaisin sovellukseen</a>
+  </main>
+</body>
+</html>

@@ -438,6 +438,7 @@ function setupNavigation() {
       <li><a href="#student/${currentUser.id}" class="nav-link" data-nav-link="student">Omat tiedot</a></li>
       <li><a href="#sites" class="nav-link" data-nav-link="sites">Lentopaikat</a></li>
       <li><a href="#theory-management" class="nav-link" data-nav-link="theory-management">Teoria</a></li>
+      <li><a href="/docs/oppilas.html" class="nav-link" target="_blank" rel="noopener">Ohje</a></li>
     `;
   } else {
     // Add clubs link for admin users
