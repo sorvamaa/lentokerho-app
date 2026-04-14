@@ -174,10 +174,12 @@ app.use((req, res, next) => {
 
 // Public endpoints exempt from CSRF check — they either create the session
 // (login) or are anonymous flows (password reset).
+// Paths are relative to the /api mount point — Express strips the prefix
+// before handing the request to the middleware.
 const CSRF_EXEMPT_PATHS = new Set([
-  '/api/login',
-  '/api/forgot-password',
-  '/api/reset-password'
+  '/login',
+  '/forgot-password',
+  '/reset-password'
 ]);
 
 // Verify CSRF token on state-changing requests under /api.
@@ -206,10 +208,12 @@ const requireAuth = (req, res, next) => {
 
 // Middleware: Block every authenticated request for users that still have the
 // default password, except the endpoints they need to actually change it.
+// Relative to the /api mount point (Express strips the prefix).
 const ALLOWED_WHEN_MUST_CHANGE = new Set([
-  '/api/me',
-  '/api/logout',
-  '/api/change-password'
+  '/me',
+  '/logout',
+  '/change-password',
+  '/csrf'
 ]);
 
 app.use('/api', async (req, res, next) => {
