@@ -2303,6 +2303,26 @@ async function fixDoubleEncodedUtf8() {
   }
 }
 
+// One-time migration: fix double-encoded Finnish chars in theory tables.
+// Targets rows containing `Ã` (U+00C3) — the hallmark of mis-encoded UTF-8
+// interpreted as Latin-1 and re-encoded. Safe to run repeatedly because the
+// filter only matches broken rows; properly encoded Finnish text is left alone.
+async function fixTheoryUtf8() {
+  try {
+    const pool = getDb().getPool();
+    const fixes = [
+      "UPDATE theory_topics_def SET title   = convert_from(convert_to(title,   'LATIN1'), 'UTF8') WHERE title   LIKE '%\u00c3%'",
+      "UPDATE theory_topics_def SET comment = convert_from(convert_to(comment, 'LATIN1'), 'UTF8') WHERE comment IS NOT NULL AND comment LIKE '%\u00c3%'",
+      "UPDATE theory_sections   SET title   = convert_from(convert_to(title,   'LATIN1'), 'UTF8') WHERE title   LIKE '%\u00c3%'"
+    ];
+    for (const sql of fixes) {
+      try { await pool.query(sql); } catch(e) { console.error('Theory UTF-8 fix row failed:', e.message); }
+    }
+  } catch(e) {
+    console.error('Theory UTF-8 fix failed (non-critical):', e.message);
+  }
+}
+
 // One-time migration: fix mangled dashes in theory_topics_def
 // Old seed data stored `–` as the 5-codepoint sequence E2,C2,80,C2,93 (and
 // `—` as …,94). Replace those with real en-/em-dashes.
@@ -2338,6 +2358,13 @@ initDb().then(async () => {
     await fixDoubleEncodedUtf8();
   } catch(e) {
     console.error('UTF-8 fix failed:', e.message);
+  }
+
+  // Fix double-encoded Finnish chars in theory tables
+  try {
+    await fixTheoryUtf8();
+  } catch(e) {
+    console.error('Theory UTF-8 fix failed:', e.message);
   }
 
   // Fix mangled dashes in theory topic titles
