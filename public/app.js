@@ -378,6 +378,9 @@ function navigate() {
     case 'students':
       renderStudentList();
       break;
+    case 'club-students':
+      renderClubStudentsProgress();
+      break;
     case 'student':
       currentStudentId = params[0];
       renderStudentDetail(params[0]);
@@ -587,6 +590,107 @@ async function renderStudentList() {
 function setStudentFilter(filter) {
   studentListFilter = filter;
   renderStudentList();
+}
+
+// ============================================================================
+// CLUB STUDENTS PROGRESS VIEW
+// ============================================================================
+
+function progressColor(done, total) {
+  if (!total) return '#6c757d';
+  const pct = done / total;
+  if (pct >= 1) return '#28a745';
+  if (pct >= 0.5) return '#F59E0B';
+  if (pct > 0) return '#2E6DA4';
+  return '#dc3545';
+}
+
+function progressBar(done, total, label) {
+  const pct = total ? Math.min(100, Math.round((done / total) * 100)) : 0;
+  const color = progressColor(done, total);
+  return `
+    <div style="margin: 6px 0;">
+      <div style="display: flex; justify-content: space-between; font-size: 0.85em; color: #555; margin-bottom: 2px;">
+        <span>${label}</span>
+        <span>${done}/${total} (${pct}%)</span>
+      </div>
+      <div style="height: 8px; background: #e9ecef; border-radius: 4px; overflow: hidden;">
+        <div style="width: ${pct}%; height: 100%; background: ${color}; transition: width 0.3s;"></div>
+      </div>
+    </div>
+  `;
+}
+
+async function renderClubStudentsProgress() {
+  const mainContent = $('main-content');
+  mainContent.innerHTML = '<p style="text-align: center; padding: 40px;">Ladataan...</p>';
+
+  const structure = await getTheoryStructure();
+  const { PP1_TOTAL, PP2_TOTAL } = getTheoryTotals(structure);
+  const LOW_TOTAL = 5;
+  const HIGH_TOTAL = 40;
+
+  const data = await api('GET', '/api/students?status=all');
+  if (!data) return;
+  const students = data.students || [];
+
+  let html = `
+    <div style="padding: 20px;">
+      <h1 style="margin: 0 0 8px 0;">Kerhon oppilaat</h1>
+      <p style="color: #666; margin-bottom: 20px;">Teorian ja lentojen edistyminen. Vihreä piste = kaikki valmista.</p>
+      <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px;">
+  `;
+
+  if (students.length === 0) {
+    html += '<p style="grid-column: 1/-1; text-align: center; color: #666;">Ei oppilaita</p>';
+  } else {
+    students.forEach(s => {
+      const theoryPp1 = s.theory_pp1 || 0;
+      const theoryPp2 = s.theory_pp2 || 0;
+      const low = s.low_flights || 0;
+      const high = s.high_flights || 0;
+      const approval = !!s.has_approval;
+      const pp2Exam = !!s.pp2_exam_passed;
+
+      const allDone =
+        theoryPp1 >= PP1_TOTAL && PP1_TOTAL > 0 &&
+        theoryPp2 >= PP2_TOTAL && PP2_TOTAL > 0 &&
+        low >= LOW_TOTAL &&
+        high >= HIGH_TOTAL &&
+        approval &&
+        pp2Exam;
+
+      const dot = `<span title="${allDone ? 'Kaikki valmista' : 'Kesken'}" style="display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: ${allDone ? '#28a745' : '#adb5bd'}; border: 2px solid #fff; box-shadow: 0 0 0 1px #adb5bd;"></span>`;
+
+      const checkMark = (ok) => ok
+        ? '<span style="color: #28a745; font-weight: bold;">✓</span>'
+        : '<span style="color: #adb5bd;">–</span>';
+
+      html += `
+        <div style="position: relative; border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; cursor: pointer; background: #fff; transition: box-shadow 0.2s;" onclick="window.location.hash='#student/${s.id}'" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.15)'" onmouseout="this.style.boxShadow='none'">
+          <div style="position: absolute; top: 12px; right: 12px;">${dot}</div>
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding-right: 24px;">
+            <h3 style="margin: 0;">${escapeHtml(s.name)}</h3>
+            ${getStatusBadge(s.status)}
+          </div>
+          <div style="font-size: 0.8em; color: #888; margin-bottom: 10px;">${escapeHtml(s.email || '')}</div>
+          <div style="font-size: 0.85em; color: #333; font-weight: 600; margin-top: 8px;">Teoria</div>
+          ${progressBar(theoryPp1, PP1_TOTAL, 'PP1')}
+          ${progressBar(theoryPp2, PP2_TOTAL, 'PP2')}
+          <div style="font-size: 0.85em; color: #333; font-weight: 600; margin-top: 10px;">Lennot</div>
+          ${progressBar(low, LOW_TOTAL, 'Matalat')}
+          ${progressBar(high, HIGH_TOTAL, 'Korkeat')}
+          <div style="display: flex; gap: 14px; margin-top: 10px; font-size: 0.85em; color: #555;">
+            <span>${checkMark(approval)} Hyväksymislento</span>
+            <span>${checkMark(pp2Exam)} PP2-tentti</span>
+          </div>
+        </div>
+      `;
+    });
+  }
+
+  html += '</div></div>';
+  mainContent.innerHTML = html;
 }
 
 function showAddStudentModal() {
