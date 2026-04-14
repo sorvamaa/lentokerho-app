@@ -160,6 +160,42 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 } // 10MB
 });
 
+// ============================================================================
+// CSRF PROTECTION (synchronizer token pattern)
+// ============================================================================
+
+// Generate a per-session CSRF token on first request.
+app.use((req, res, next) => {
+  if (req.session && !req.session.csrfToken) {
+    req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+  }
+  next();
+});
+
+// Public endpoints exempt from CSRF check — they either create the session
+// (login) or are anonymous flows (password reset).
+const CSRF_EXEMPT_PATHS = new Set([
+  '/api/login',
+  '/api/forgot-password',
+  '/api/reset-password'
+]);
+
+// Verify CSRF token on state-changing requests under /api.
+app.use('/api', (req, res, next) => {
+  if (req.method === 'GET' || req.method === 'HEAD' || req.method === 'OPTIONS') return next();
+  if (CSRF_EXEMPT_PATHS.has(req.path)) return next();
+  const sent = req.get('x-csrf-token');
+  if (!sent || !req.session.csrfToken || sent !== req.session.csrfToken) {
+    return res.status(403).json({ error: 'Virheellinen tai puuttuva CSRF-tunniste. Päivitä sivu ja yritä uudelleen.' });
+  }
+  next();
+});
+
+// Expose the current session's CSRF token to the client.
+app.get('/api/csrf', (req, res) => {
+  res.json({ csrfToken: req.session.csrfToken });
+});
+
 // Middleware: Authentication check
 const requireAuth = (req, res, next) => {
   if (!req.session.userId) {

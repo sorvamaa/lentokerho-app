@@ -10,6 +10,17 @@ let currentView = 'dashboard';
 let currentStudentId = null;
 let currentLessonId = null;
 let isLoading = false;
+let csrfToken = null;
+
+async function refreshCsrfToken() {
+  try {
+    const res = await fetch('/api/csrf', { method: 'GET' });
+    if (res.ok) {
+      const data = await res.json();
+      csrfToken = data.csrfToken || null;
+    }
+  } catch (e) { /* non-fatal; next mutation will error and prompt reload */ }
+}
 
 // ============================================================================
 // THEORY TOPICS — loaded dynamically from database
@@ -53,6 +64,10 @@ async function api(method, url, body = null) {
     method,
     headers: { 'Content-Type': 'application/json' }
   };
+
+  if (method !== 'GET' && csrfToken) {
+    options.headers['X-CSRF-Token'] = csrfToken;
+  }
 
   if (body) {
     options.body = JSON.stringify(body);
@@ -266,6 +281,7 @@ async function init() {
 
   if (user && user.id) {
     currentUser = user;
+    await refreshCsrfToken();
     setupNavigation();
     showAppView();
     if (currentUser.must_change_password) {
@@ -345,6 +361,7 @@ async function handleLogin() {
   const result = await api('POST', '/api/login', { username, password });
   if (result && result.id) {
     currentUser = result;
+    await refreshCsrfToken();
     showSuccess('Kirjautuminen onnistui');
     setupNavigation();
     showAppView();
@@ -1453,6 +1470,7 @@ async function handleUploadAttachment(event, studentId) {
   try {
     const response = await fetch(`/api/students/${studentId}/attachments`, {
       method: 'POST',
+      headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
       body: formData
     });
     if (response.status === 401) { currentUser = null; showLoginView(); return; }
