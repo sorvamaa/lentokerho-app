@@ -144,6 +144,7 @@ async function migrate(w) {
       status         TEXT    DEFAULT NULL,
       pp2_exam_passed INTEGER DEFAULT 0,
       pp2_exam_date  TEXT    DEFAULT NULL,
+      must_change_password INTEGER DEFAULT 0,
       course_started TEXT    DEFAULT NULL,
       student_notes  TEXT    DEFAULT NULL,
       club_id        INTEGER DEFAULT NULL REFERENCES clubs(id),
@@ -279,6 +280,7 @@ async function migrate(w) {
   // Additive column migrations for existing databases
   await w.exec(`
     ALTER TABLE users ADD COLUMN IF NOT EXISTS pp2_exam_date TEXT DEFAULT NULL;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS must_change_password INTEGER DEFAULT 0;
   `);
 
   // Create indexes (IF NOT EXISTS supported in PostgreSQL)

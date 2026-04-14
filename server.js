@@ -67,10 +67,10 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-// Rate limiting — login endpoint (5 attempts per 15 minutes)
+// Rate limiting — login endpoint (strict in production, looser in dev)
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: process.env.NODE_ENV === 'production' ? 5 : 20,
   message: { error: 'Liian monta kirjautumisyritystä. Yritä uudelleen 15 minuutin kuluttua.' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -116,6 +116,7 @@ if (sessionPool) {
     cookie: {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     }
   }));
@@ -128,6 +129,7 @@ if (sessionPool) {
     cookie: {
       httpOnly: true,
       secure: false,
+      sameSite: 'lax',
       maxAge: 24 * 60 * 60 * 1000
     }
   }));
@@ -165,6 +167,29 @@ const requireAuth = (req, res, next) => {
   }
   next();
 };
+
+// Middleware: Block every authenticated request for users that still have the
+// default password, except the endpoints they need to actually change it.
+const ALLOWED_WHEN_MUST_CHANGE = new Set([
+  '/api/me',
+  '/api/logout',
+  '/api/change-password'
+]);
+
+app.use('/api', async (req, res, next) => {
+  if (!req.session.userId) return next();
+  if (ALLOWED_WHEN_MUST_CHANGE.has(req.path)) return next();
+  try {
+    const db = getDb();
+    const u = await db.prepare('SELECT must_change_password FROM users WHERE id = ?').get(req.session.userId);
+    if (u && u.must_change_password) {
+      return res.status(403).json({ error: 'Salasana on vaihdettava ennen kuin voit jatkaa.', must_change_password: true });
+    }
+  } catch(e) {
+    // fall through; don't lock users out on DB hiccup
+  }
+  next();
+});
 
 // Middleware: Instructor role check (allows admin too)
 const requireInstructor = async (req, res, next) => {
@@ -206,7 +231,7 @@ const getUserClubId = async (req) => {
 // Helper: Get user object without password
 const getUserWithoutPassword = async (userId) => {
   const db = getDb();
-  return await db.prepare('SELECT id, username, email, name, role, phone FROM users WHERE id = ?').get(userId);
+  return await db.prepare('SELECT id, username, email, name, role, phone, must_change_password FROM users WHERE id = ?').get(userId);
 };
 
 // Middleware: Sanitize request body strings to prevent XSS
@@ -298,7 +323,7 @@ app.post('/api/change-password', requireAuth, async (req, res) => {
   }
 
   const hashedPassword = bcrypt.hashSync(newPassword, 12);
-  await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashedPassword, userId);
+  await db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hashedPassword, userId);
 
   await logAction(userId, 'CHANGE_PASSWORD', 'user', userId, {});
   res.json({ success: true });
@@ -2020,7 +2045,12 @@ async function seedDatabase() {
   if (parseInt(userCount.c) > 0) return { message: 'Already seeded', userCount: parseInt(userCount.c) };
 
   console.log('Database is empty — seeding default data...');
+  if (process.env.NODE_ENV === 'production') {
+    console.warn('⚠ Seeding into a PRODUCTION database. Default accounts will be forced to change passwords on first login.');
+  }
   const hash = (pw) => bcrypt.hashSync(pw, 12);
+  // In production every default account must change its password on first login.
+  const forceChange = process.env.NODE_ENV === 'production' ? 1 : 0;
 
   try {
     // ============================
@@ -2246,6 +2276,10 @@ async function seedDatabase() {
         await db.prepare('INSERT INTO theory_topics_def (section_id,key,title,duration_minutes,comment,sort_order) VALUES (?,?,?,?,?,?)')
           .run(sectionId, t.key, t.title, t.dur, t.comment, topicSort++);
       }
+    }
+
+    if (forceChange) {
+      await db.prepare('UPDATE users SET must_change_password = 1').run();
     }
 
     const totalUsers = 1 + 2 + 3 + 1 + 3 + 1 + 3; // admin + 4 clubs

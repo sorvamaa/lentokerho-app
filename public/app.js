@@ -268,9 +268,68 @@ async function init() {
     currentUser = user;
     setupNavigation();
     showAppView();
-    navigate();
+    if (currentUser.must_change_password) {
+      renderForcePasswordChange();
+    } else {
+      navigate();
+    }
   } else {
     showLoginView();
+  }
+}
+
+function renderForcePasswordChange() {
+  // Hide sidebar, block navigation until password is changed
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar) sidebar.style.display = 'none';
+  const mainContent = $('main-content');
+  mainContent.innerHTML = `
+    <div style="max-width: 440px; margin: 40px auto; background: #fff; border: 1px solid #dee2e6; border-radius: 10px; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+      <h2 style="margin-top: 0;">Salasana on vaihdettava</h2>
+      <p style="color: #555;">Tämä tili käyttää oletussalasanaa. Aseta uusi vahva salasana (vähintään 8 merkkiä) ennen kuin voit jatkaa.</p>
+      <form onsubmit="handleForcePasswordChange(event)">
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label>Nykyinen salasana *</label>
+          <input type="password" id="force-pw-current" required autocomplete="current-password" style="width: 100%; padding: 10px; box-sizing: border-box;">
+        </div>
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label>Uusi salasana (vähintään 8 merkkiä) *</label>
+          <input type="password" id="force-pw-new" required minlength="8" autocomplete="new-password" style="width: 100%; padding: 10px; box-sizing: border-box;">
+        </div>
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label>Vahvista uusi salasana *</label>
+          <input type="password" id="force-pw-confirm" required minlength="8" autocomplete="new-password" style="width: 100%; padding: 10px; box-sizing: border-box;">
+        </div>
+        <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
+          <button type="button" class="btn btn-secondary" onclick="handleLogout()">Kirjaudu ulos</button>
+          <button type="submit" class="btn btn-primary">Tallenna salasana</button>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
+async function handleForcePasswordChange(event) {
+  event.preventDefault();
+  const currentPassword = $('force-pw-current').value;
+  const newPassword = $('force-pw-new').value;
+  const confirm = $('force-pw-confirm').value;
+  if (newPassword !== confirm) {
+    showError('Uudet salasanat eivät täsmää');
+    return;
+  }
+  const result = await api('POST', '/api/change-password', { currentPassword, newPassword });
+  if (result && result.success) {
+    showSuccess('Salasana vaihdettu');
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) sidebar.style.display = '';
+    currentUser = await api('GET', '/api/me');
+    if (currentUser.role === 'student') {
+      window.location.hash = '#student/' + currentUser.id;
+    } else {
+      window.location.hash = '#dashboard';
+    }
+    navigate();
   }
 }
 
@@ -289,6 +348,10 @@ async function handleLogin() {
     showSuccess('Kirjautuminen onnistui');
     setupNavigation();
     showAppView();
+    if (currentUser.must_change_password) {
+      renderForcePasswordChange();
+      return;
+    }
     if (currentUser.role === 'student') {
       window.location.hash = '#student/' + currentUser.id;
     } else {
