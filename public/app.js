@@ -682,7 +682,7 @@ async function renderClubStudentsProgress() {
           ${progressBar(high, HIGH_TOTAL, 'Korkeat')}
           <div style="display: flex; gap: 14px; margin-top: 10px; font-size: 0.85em; color: #555;">
             <span>${checkMark(approval)} Tarkistuslento</span>
-            <span>${checkMark(pp2Exam)} PP2-tentti</span>
+            <span>${checkMark(pp2Exam)} PP2-tentti${pp2Exam && s.pp2_exam_date ? ' (' + formatDate(s.pp2_exam_date) + ')' : ''}</span>
           </div>
         </div>
       `;
@@ -880,7 +880,7 @@ async function loadFlightsTab(studentId) {
         ${stats.has_approval ? '<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">Tarkistuslento suoritettu</span>' : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">Tarkistuslento vaaditaan</span>'}
       </div>
       <div style="display: flex; align-items: center;">
-        ${stats.pp2_exam_passed ? '<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">PP2-koe suoritettu</span>' : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">PP2-koe suorittamatta</span>'}
+        ${stats.pp2_exam_passed ? `<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">PP2-koe suoritettu${stats.pp2_exam_date ? ' ' + formatDate(stats.pp2_exam_date) : ''}</span>` : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">PP2-koe suorittamatta</span>'}
       </div>
     </div>
 
@@ -1420,7 +1420,11 @@ function showEditStudentModal(studentId) {
           </select>
         </div>
         <div class="form-group" style="margin-bottom: 12px;">
-          <label><input type="checkbox" id="edit-student-pp2-exam" ${student.pp2_exam_passed ? 'checked' : ''}> PP2-koe suoritettu</label>
+          <label><input type="checkbox" id="edit-student-pp2-exam" ${student.pp2_exam_passed ? 'checked' : ''} onchange="document.getElementById('edit-student-pp2-exam-date').disabled = !this.checked"> PP2-koe suoritettu</label>
+        </div>
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label>PP2-kokeen suorituspäivä</label>
+          <input type="date" id="edit-student-pp2-exam-date" value="${student.pp2_exam_date || ''}" ${student.pp2_exam_passed ? '' : 'disabled'} style="width: 100%; padding: 8px; box-sizing: border-box;">
         </div>
         <div class="form-group" style="margin-bottom: 12px;">
           <label>Kurssin aloituspäivä</label>
@@ -1444,6 +1448,7 @@ async function handleEditStudent(event, studentId) {
     phone: $('edit-student-phone').value.trim(),
     status: $('edit-student-status').value,
     pp2_exam_passed: $('edit-student-pp2-exam').checked,
+    pp2_exam_date: $('edit-student-pp2-exam').checked ? ($('edit-student-pp2-exam-date').value || null) : null,
     course_started: $('edit-student-course-started').value
   });
   if (result) {

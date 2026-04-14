@@ -15,7 +15,7 @@ const { initDb, getDb } = require('./db');
 const { logAction } = require('./audit');
 const { sendPasswordReset } = require('./mailer');
 
-// Sentry error tracking (optional âÂÂ only if DSN is configured)
+// Sentry error tracking (optional — only if DSN is configured)
 let Sentry = null;
 if (process.env.SENTRY_DSN) {
   Sentry = require('@sentry/node');
@@ -51,7 +51,7 @@ app.set('trust proxy', 1);
 // SECURITY MIDDLEWARE
 // ============================================================================
 
-// Helmet.js âÂÂ security headers
+// Helmet.js — security headers
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -67,7 +67,7 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-// Rate limiting âÂÂ login endpoint (5 attempts per 15 minutes)
+// Rate limiting — login endpoint (5 attempts per 15 minutes)
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
@@ -77,7 +77,7 @@ const loginLimiter = rateLimit({
   keyGenerator: (req) => req.ip
 });
 
-// Rate limiting âÂÂ general API (100 requests per minute)
+// Rate limiting — general API (100 requests per minute)
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 100,
@@ -366,7 +366,7 @@ app.post('/api/reset-password', async (req, res) => {
   res.json({ success: true });
 });
 
-// POST /api/admin/reset-password âÂÂ Instructor can reset student passwords
+// POST /api/admin/reset-password — Instructor can reset student passwords
 app.post('/api/admin/reset-password', requireAuth, requireInstructor, async (req, res) => {
   const { user_id, new_password } = req.body;
 
@@ -439,7 +439,7 @@ const getStudentStats = async (studentId) => {
 
   // PP2 exam status
   const pp2Exam = await db.prepare(
-    'SELECT pp2_exam_passed FROM users WHERE id = ?'
+    'SELECT pp2_exam_passed, pp2_exam_date FROM users WHERE id = ?'
   ).get(studentId);
 
   // Theory counts
@@ -459,6 +459,7 @@ const getStudentStats = async (studentId) => {
     last_flight_date: lastFlight ? lastFlight.date : null,
     has_approval: parseInt(hasApproval.count) > 0,
     pp2_exam_passed: pp2Exam ? pp2Exam.pp2_exam_passed : 0,
+    pp2_exam_date: pp2Exam ? pp2Exam.pp2_exam_date : null,
     theory_pp1: parseInt(theoryPp1.count),
     theory_pp2: parseInt(theoryPp2.count)
   };
@@ -470,7 +471,7 @@ app.get('/api/students', requireAuth, requireInstructor, async (req, res) => {
   const db = getDb();
   const user = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
 
-  let query = 'SELECT id, username, name, email, phone, status, pp2_exam_passed, course_started, student_notes, created_at, club_id FROM users WHERE role = ?';
+  let query = 'SELECT id, username, name, email, phone, status, pp2_exam_passed, pp2_exam_date, course_started, student_notes, created_at, club_id FROM users WHERE role = ?';
   const params = ['student'];
 
   if (status !== 'all') {
@@ -545,9 +546,9 @@ app.get('/api/students/:id', requireAuth, async (req, res) => {
     return res.status(403).json({ error: 'Not authorized to view this student' });
   }
 
-  // Never return password_hash âÂÂ use explicit column list
+  // Never return password_hash — use explicit column list
   const student = await db.prepare(
-    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, course_started, student_notes, created_at FROM users WHERE id = ? AND role = ?'
+    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, pp2_exam_date, course_started, student_notes, created_at FROM users WHERE id = ? AND role = ?'
   ).get(id, 'student');
 
   if (!student) {
@@ -561,7 +562,7 @@ app.get('/api/students/:id', requireAuth, async (req, res) => {
 // PUT /api/students/:id
 app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) => {
   const { id } = req.params;
-  const { name, email, phone, status, pp2_exam_passed, course_started, student_notes } = req.body;
+  const { name, email, phone, status, pp2_exam_passed, pp2_exam_date, course_started, student_notes } = req.body;
 
   const db = getDb();
   const student = await db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(id, 'student');
@@ -586,6 +587,7 @@ app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) =>
   if (phone !== undefined) { updates.push('phone = ?'); values.push(phone); }
   if (status !== undefined) { updates.push('status = ?'); values.push(status); }
   if (pp2_exam_passed !== undefined) { updates.push('pp2_exam_passed = ?'); values.push(pp2_exam_passed ? 1 : 0); }
+  if (pp2_exam_date !== undefined) { updates.push('pp2_exam_date = ?'); values.push(pp2_exam_date || null); }
   if (course_started !== undefined) { updates.push('course_started = ?'); values.push(course_started); }
   if (student_notes !== undefined) { updates.push('student_notes = ?'); values.push(student_notes); }
 
@@ -822,7 +824,7 @@ app.delete('/api/students/:id/theory/:topic_key', requireAuth, requireInstructor
 // THEORY MANAGEMENT ROUTES (dynamic sections & topics)
 // ============================================================================
 
-// GET /api/theory/structure âÂÂ returns full structure for frontend
+// GET /api/theory/structure — returns full structure for frontend
 app.get('/api/theory/structure', requireAuth, async (req, res) => {
   const db = getDb();
 
@@ -869,7 +871,7 @@ app.get('/api/theory/structure', requireAuth, async (req, res) => {
   res.json(structure);
 });
 
-// GET /api/theory/sections âÂÂ list all sections (admin only)
+// GET /api/theory/sections — list all sections (admin only)
 app.get('/api/theory/sections', requireAuth, requireAdmin, async (req, res) => {
   const db = getDb();
   const sections = await db.prepare(
@@ -878,7 +880,7 @@ app.get('/api/theory/sections', requireAuth, requireAdmin, async (req, res) => {
   res.json({ sections });
 });
 
-// POST /api/theory/sections âÂÂ create a new section (admin only)
+// POST /api/theory/sections — create a new section (admin only)
 app.post('/api/theory/sections', requireAuth, requireAdmin, async (req, res) => {
   const { level, key, title } = req.body;
   if (!level || !key || !title) {
@@ -911,7 +913,7 @@ app.post('/api/theory/sections', requireAuth, requireAdmin, async (req, res) => 
   }
 });
 
-// PUT /api/theory/sections/:id âÂÂ update a section (admin only)
+// PUT /api/theory/sections/:id — update a section (admin only)
 app.put('/api/theory/sections/:id', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { title, sort_order } = req.body;
@@ -931,7 +933,7 @@ app.put('/api/theory/sections/:id', requireAuth, requireAdmin, async (req, res) 
   res.json({ success: true });
 });
 
-// DELETE /api/theory/sections/:id âÂÂ delete a section, admin only (only if no topics)
+// DELETE /api/theory/sections/:id — delete a section, admin only (only if no topics)
 app.delete('/api/theory/sections/:id', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const db = getDb();
@@ -949,7 +951,7 @@ app.delete('/api/theory/sections/:id', requireAuth, requireAdmin, async (req, re
   res.json({ success: true });
 });
 
-// POST /api/theory/sections/:id/topics âÂÂ create a topic in a section (admin only)
+// POST /api/theory/sections/:id/topics — create a topic in a section (admin only)
 app.post('/api/theory/sections/:sectionId/topics', requireAuth, requireAdmin, async (req, res) => {
   const { sectionId } = req.params;
   const { key, title, duration_minutes, comment } = req.body;
@@ -983,7 +985,7 @@ app.post('/api/theory/sections/:sectionId/topics', requireAuth, requireAdmin, as
   }
 });
 
-// PUT /api/theory/topics/:id âÂÂ update a topic (admin only)
+// PUT /api/theory/topics/:id — update a topic (admin only)
 app.put('/api/theory/topics/:id', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const { title, duration_minutes, comment, sort_order } = req.body;
@@ -1005,7 +1007,7 @@ app.put('/api/theory/topics/:id', requireAuth, requireAdmin, async (req, res) =>
   res.json({ success: true });
 });
 
-// DELETE /api/theory/topics/:id âÂÂ delete a topic, admin only (only if no completions)
+// DELETE /api/theory/topics/:id — delete a topic, admin only (only if no completions)
 app.delete('/api/theory/topics/:id', requireAuth, requireAdmin, async (req, res) => {
   const { id } = req.params;
   const db = getDb();
@@ -1856,7 +1858,7 @@ app.get('/api/dashboard', requireAuth, requireInstructor, async (req, res) => {
   // Active students with stats and last_flight_date
   const students = await db.prepare(`
     SELECT u.id, u.username, u.name, u.email, u.phone, u.role, u.status,
-           u.pp2_exam_passed, u.course_started, u.student_notes, u.club_id, u.created_at
+           u.pp2_exam_passed, u.pp2_exam_date, u.course_started, u.student_notes, u.club_id, u.created_at
     FROM users u
     WHERE u.role = 'student' AND u.status = 'ongoing'${clubWhere}
     ORDER BY u.name ASC
@@ -1952,12 +1954,12 @@ app.get('/api/audit-log', requireAuth, requireInstructor, async (req, res) => {
 });
 
 // ============================================================================
-// GDPR âÂÂ Privacy policy endpoint
+// GDPR — Privacy policy endpoint
 // ============================================================================
 
 app.get('/api/privacy-policy', (req, res) => {
   res.json({
-    title: 'PilottiPolku âÂÂ Tietosuojaseloste',
+    title: 'PilottiPolku — Tietosuojaseloste',
     controller: 'PilottiPolku-sovelluksen ylläpitäjä',
     purpose: 'Varjoliidon koulutuksen hallinta ja seuranta',
     legal_basis: 'Sopimus (koulutussuhde) ja oikeutettu etu (turvallisuus)',
@@ -2012,7 +2014,7 @@ async function seedDatabase() {
   const userCount = await db.prepare('SELECT COUNT(*) as c FROM users').get();
   if (parseInt(userCount.c) > 0) return { message: 'Already seeded', userCount: parseInt(userCount.c) };
 
-  console.log('Database is empty âÂÂ seeding default data...');
+  console.log('Database is empty — seeding default data...');
   const hash = (pw) => bcrypt.hashSync(pw, 12);
 
   try {
@@ -2142,7 +2144,7 @@ async function seedDatabase() {
       ]},
       { level:'pp1', key:'pp1_meteo', title:'Mikrometeorologia', topics:[
         {key:'pp1_meteo_1',title:'Tuulen perusteet',dur:45,comment:'Koulutusopas luku 3.1'},
-        {key:'pp1_meteo_2',title:'Terminen aktiivisuus âÂÂ perusteet',dur:45,comment:'Koulutusopas luku 3.2'},
+        {key:'pp1_meteo_2',title:'Terminen aktiivisuus – perusteet',dur:45,comment:'Koulutusopas luku 3.2'},
         {key:'pp1_meteo_3',title:'Turbulenssi ja tuulengradientti',dur:30,comment:'Koulutusopas luku 3.3'},
         {key:'pp1_meteo_4',title:'Sääennusteiden lukeminen',dur:30,comment:'Koulutusopas luku 3.4'},
         {key:'pp1_meteo_5',title:'Paikallissääilmiöt',dur:30,comment:'Koulutusopas luku 3.5'}
@@ -2169,7 +2171,7 @@ async function seedDatabase() {
       ]},
       { level:'pp1', key:'pp1_safety', title:'Turvallisuus PP1', topics:[
         {key:'pp1_safety_1',title:'Riskienhallinta ja päätöksenteko',dur:45,comment:'Koulutusopas luku 7.1'},
-        {key:'pp1_safety_2',title:'Hätätilanteet âÂÂ liitimen hallinta',dur:60,comment:'Koulutusopas luku 7.2'},
+        {key:'pp1_safety_2',title:'Hätätilanteet – liitimen hallinta',dur:60,comment:'Koulutusopas luku 7.2'},
         {key:'pp1_safety_3',title:'Varavarjon käyttö',dur:45,comment:'Koulutusopas luku 7.3'},
         {key:'pp1_safety_4',title:'Ensiapu lentopaikalla',dur:45,comment:'Koulutusopas luku 7.4'},
         {key:'pp1_safety_5',title:'Onnettomuusraportointi',dur:30,comment:'Koulutusopas luku 7.5'}
@@ -2177,14 +2179,14 @@ async function seedDatabase() {
       { level:'pp2', key:'pp2_aero_adv', title:'Aerodynamiikka (syventävä)', topics:[
         {key:'pp2_aero_1',title:'Profiilipolaaridiagrammit',dur:45,comment:'Koulutusopas luku 8.1'},
         {key:'pp2_aero_2',title:'Liitosuhde ja sink rate',dur:45,comment:'Koulutusopas luku 8.2'},
-        {key:'pp2_aero_3',title:'Wingover ja SAT âÂÂ aerodynamiikka',dur:60,comment:'Koulutusopas luku 8.3'},
+        {key:'pp2_aero_3',title:'Wingover ja SAT – aerodynamiikka',dur:60,comment:'Koulutusopas luku 8.3'},
         {key:'pp2_aero_4',title:'Speed system ja trim',dur:30,comment:'Koulutusopas luku 8.4'},
         {key:'pp2_aero_5',title:'EN-luokitus ja turvallisuustestit',dur:30,comment:'Koulutusopas luku 8.5'},
         {key:'pp2_aero_6',title:'Siipiprofiilien vertailu',dur:45,comment:'Koulutusopas luku 8.6'}
       ]},
       { level:'pp2', key:'pp2_meteo_adv', title:'Meteorologia (syventävä)', topics:[
         {key:'pp2_meteo_1',title:'Synoptiikka ja sääkartat',dur:60,comment:'Koulutusopas luku 9.1'},
-        {key:'pp2_meteo_2',title:'Termiikka âÂÂ kehittynyt teoria',dur:60,comment:'Koulutusopas luku 9.2'},
+        {key:'pp2_meteo_2',title:'Termiikka – kehittynyt teoria',dur:60,comment:'Koulutusopas luku 9.2'},
         {key:'pp2_meteo_3',title:'Inversiot ja stabiilisuus',dur:45,comment:'Koulutusopas luku 9.3'},
         {key:'pp2_meteo_4',title:'Vuoristoaallot ja roottori',dur:45,comment:'Koulutusopas luku 9.4'},
         {key:'pp2_meteo_5',title:'Ukkosrintamat ja vaaralliset säätilat',dur:45,comment:'Koulutusopas luku 9.5'},
@@ -2193,7 +2195,7 @@ async function seedDatabase() {
       { level:'pp2', key:'pp2_nav', title:'Navigointi', topics:[
         {key:'pp2_nav_1',title:'Kartat ja koordinaatistot',dur:45,comment:'Koulutusopas luku 10.1'},
         {key:'pp2_nav_2',title:'GPS-navigointi ilmassa',dur:45,comment:'Koulutusopas luku 10.2'},
-        {key:'pp2_nav_3',title:'Reittisuunnittelu âÂÂ XC',dur:60,comment:'Koulutusopas luku 10.3'},
+        {key:'pp2_nav_3',title:'Reittisuunnittelu – XC',dur:60,comment:'Koulutusopas luku 10.3'},
         {key:'pp2_nav_4',title:'Ilmatilarajat ja karttapalvelut',dur:30,comment:'Koulutusopas luku 10.4'},
         {key:'pp2_nav_5',title:'Vario ja flight computer',dur:45,comment:'Koulutusopas luku 10.5'}
       ]},
@@ -2301,6 +2303,28 @@ async function fixDoubleEncodedUtf8() {
   }
 }
 
+// One-time migration: fix mangled dashes in theory_topics_def
+// Old seed data stored `–` as the 5-codepoint sequence E2,C2,80,C2,93 (and
+// `—` as …,94). Replace those with real en-/em-dashes.
+async function fixTheoryDashes() {
+  try {
+    const pool = getDb().getPool();
+    const enBad = '\u00e2\u00c2\u0080\u00c2\u0093';
+    const emBad = '\u00e2\u00c2\u0080\u00c2\u0094';
+    const fixes = [
+      `UPDATE theory_topics_def SET title   = REPLACE(title,   $1, $2) WHERE title   LIKE '%' || $1 || '%'`,
+      `UPDATE theory_topics_def SET comment = REPLACE(comment, $1, $2) WHERE comment LIKE '%' || $1 || '%'`,
+      `UPDATE theory_sections   SET title   = REPLACE(title,   $1, $2) WHERE title   LIKE '%' || $1 || '%'`
+    ];
+    for (const sql of fixes) {
+      await pool.query(sql, [enBad, '\u2013']);
+      await pool.query(sql, [emBad, '\u2014']);
+    }
+  } catch(e) {
+    console.error('Theory dash fix failed (non-critical):', e.message);
+  }
+}
+
 initDb().then(async () => {
   // Automatically seed the database if it's empty
   try {
@@ -2314,6 +2338,13 @@ initDb().then(async () => {
     await fixDoubleEncodedUtf8();
   } catch(e) {
     console.error('UTF-8 fix failed:', e.message);
+  }
+
+  // Fix mangled dashes in theory topic titles
+  try {
+    await fixTheoryDashes();
+  } catch(e) {
+    console.error('Theory dash fix failed:', e.message);
   }
 
   // Replace real instructor emails with fictional ones (privacy)

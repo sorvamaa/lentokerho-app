@@ -13,7 +13,7 @@ function convertPlaceholders(sql) {
 function convertSql(sql) {
   let converted = convertPlaceholders(sql);
 
-  // INSERT OR IGNORE â INSERT INTO ... ON CONFLICT DO NOTHING
+  // INSERT OR IGNORE → INSERT INTO ... ON CONFLICT DO NOTHING
   if (/INSERT\s+OR\s+IGNORE\s+INTO/i.test(sql)) {
     converted = converted.replace(/INSERT\s+OR\s+IGNORE\s+INTO/gi, 'INSERT INTO');
     converted = converted.trimEnd().replace(/;?\s*$/, '') + ' ON CONFLICT DO NOTHING';
@@ -143,6 +143,7 @@ async function migrate(w) {
       phone          TEXT    DEFAULT NULL,
       status         TEXT    DEFAULT NULL,
       pp2_exam_passed INTEGER DEFAULT 0,
+      pp2_exam_date  TEXT    DEFAULT NULL,
       course_started TEXT    DEFAULT NULL,
       student_notes  TEXT    DEFAULT NULL,
       club_id        INTEGER DEFAULT NULL REFERENCES clubs(id),
@@ -273,6 +274,11 @@ async function migrate(w) {
       sort_order       INTEGER NOT NULL DEFAULT 0,
       created_at       TIMESTAMP DEFAULT NOW()
     );
+  `);
+
+  // Additive column migrations for existing databases
+  await w.exec(`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS pp2_exam_date TEXT DEFAULT NULL;
   `);
 
   // Create indexes (IF NOT EXISTS supported in PostgreSQL)
