@@ -681,7 +681,7 @@ async function renderClubStudentsProgress() {
           ${progressBar(low, LOW_TOTAL, 'Matalat')}
           ${progressBar(high, HIGH_TOTAL, 'Korkeat')}
           <div style="display: flex; gap: 14px; margin-top: 10px; font-size: 0.85em; color: #555;">
-            <span>${checkMark(approval)} Hyväksymislento</span>
+            <span>${checkMark(approval)} Tarkistuslento</span>
             <span>${checkMark(pp2Exam)} PP2-tentti</span>
           </div>
         </div>
