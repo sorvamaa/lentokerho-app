@@ -70,10 +70,11 @@ app.use(helmet({
 // Rate limiting — login endpoint (strict in production, looser in dev)
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: process.env.NODE_ENV === 'production' ? 5 : 20,
+  max: process.env.NODE_ENV === 'production' ? 30 : 50,
   message: { error: 'Liian monta kirjautumisyritystä. Yritä uudelleen 15 minuutin kuluttua.' },
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
   keyGenerator: (req) => req.ip
 });
 

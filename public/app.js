@@ -1822,12 +1822,13 @@ async function renderLessons() {
   if (lessons.length > 0) {
     lessons.forEach(lesson => {
       html += `
-        <tr style="border-bottom: 1px solid #dee2e6;">
+        <tr style="border-bottom: 1px solid #dee2e6; cursor: pointer;" onclick="window.location.hash='#lesson/${lesson.id}'">
           <td style="padding: 10px;">${formatDate(lesson.date)}</td>
           <td style="padding: 10px;">${lesson.topic_count || 0}</td>
           <td style="padding: 10px;">${lesson.student_count || 0}</td>
           <td style="padding: 10px;">${escapeHtml(lesson.instructor_name || '')}</td>
-          <td style="padding: 10px;">
+          <td style="padding: 10px;" onclick="event.stopPropagation()">
+            <button class="btn btn-small btn-secondary" onclick="window.location.hash='#lesson/${lesson.id}'">Näytä</button>
             <button class="btn btn-small btn-danger" onclick="deleteLessonConfirm(${lesson.id})">Poista</button>
           </td>
         </tr>
@@ -1957,6 +1958,16 @@ async function renderLessonDetail(id) {
   const studentNames = data.student_names || [];
   const topicKeys = data.topic_keys || [];
 
+  const structure = await getTheoryStructure();
+  const topicLabels = {};
+  ['pp1', 'pp2'].forEach(level => {
+    (structure[level] || []).forEach(section => {
+      section.topics.forEach(topic => {
+        topicLabels[topic.key] = `${level.toUpperCase()} – ${topic.title}`;
+      });
+    });
+  });
+
   let html = `
     <div style="padding: 20px;">
       <button class="btn btn-secondary" onclick="window.location.hash='#lessons'" style="margin-bottom: 15px;">← Takaisin</button>
@@ -1966,10 +1977,10 @@ async function renderLessonDetail(id) {
       ${lesson.notes ? `<p><strong>Muistiinpanot:</strong> ${escapeHtml(lesson.notes)}</p>` : ''}
 
       <h2>Oppilaat (${studentNames.length})</h2>
-      <ul>${studentNames.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>
+      ${studentNames.length ? `<ul>${studentNames.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : '<p style="color:#666;">Ei merkittyjä oppilaita</p>'}
 
-      <h2>Aiheet (${topicKeys.length})</h2>
-      <ul>${topicKeys.map(k => `<li>${escapeHtml(k)}</li>`).join('')}</ul>
+      <h2>Käsitellyt aiheet (${topicKeys.length})</h2>
+      ${topicKeys.length ? `<ul>${topicKeys.map(k => `<li>${escapeHtml(topicLabels[k] || k)}</li>`).join('')}</ul>` : '<p style="color:#666;">Ei merkittyjä aiheita</p>'}
     </div>
   `;
 

@@ -86,7 +86,7 @@ Ei erillistä staging-ympäristöä — `main` = tuotanto. Tällä hetkellä sov
 ## Tunnetut yksityiskohdat
 
 ### Rate limiter
-`loginLimiter` sallii 20 yritystä 15 minuutissa per IP. Tätä nostettiin aiemmin 5 → 20, jotta kehitystestaus ei jumiudu.
+`loginLimiter` sallii tuotannossa 30 ja devissä 50 **epäonnistunutta** kirjautumisyritystä per 15 min per IP. `skipSuccessfulRequests: true` — onnistuneet loginit eivät kuluta kiintiötä, joten normaalikäyttö ei lukitse tiliä.
 
 ### UTF-8-encoding
 Vanhasta SQLite-vaiheesta periytyi double-encoded merkkejä tietokantaan (esim. `VÃ¤iski`). Startup-migraatio korjaa nämä automaattisesti jos niitä löytyy. Älä poista migraatiota.
