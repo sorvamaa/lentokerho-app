@@ -700,6 +700,13 @@ function setStudentFilter(filter) {
 // CLUB STUDENTS PROGRESS VIEW
 // ============================================================================
 
+let clubStudentsFilter = 'ongoing';
+
+function setClubStudentsFilter(value) {
+  clubStudentsFilter = value;
+  renderClubStudentsProgress();
+}
+
 function progressColor(done, total) {
   if (!total) return '#6c757d';
   const pct = done / total;
@@ -734,14 +741,32 @@ async function renderClubStudentsProgress() {
   const LOW_TOTAL = 5;
   const HIGH_TOTAL = 40;
 
-  const data = await api('GET', '/api/students?status=all');
+  const filter = clubStudentsFilter || 'ongoing';
+  const data = await api('GET', '/api/students?status=' + filter);
   if (!data) return;
   const students = data.students || [];
 
+  const statusOptions = [
+    { value: 'ongoing',   label: 'Kesken' },
+    { value: 'completed', label: 'Valmis' },
+    { value: 'inactive',  label: 'Inaktiivinen' },
+    { value: 'all',       label: 'Kaikki' }
+  ];
+  const selectOptions = statusOptions.map(o =>
+    `<option value="${o.value}" ${filter === o.value ? 'selected' : ''}>${o.label}</option>`
+  ).join('');
+
   let html = `
     <div style="padding: 20px;">
-      <h1 style="margin: 0 0 8px 0;">Kerhon oppilaat</h1>
-      <p style="color: #666; margin-bottom: 20px;">Teorian ja lentojen edistyminen. Vihreä piste = kaikki valmista.</p>
+      <h1 style="margin: 0 0 8px 0;">Oppilaat</h1>
+      <p style="color: #666; margin-bottom: 16px;">Teorian ja lentojen edistyminen. Vihreä piste = kaikki valmista.</p>
+      <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+        <label for="club-students-status" style="color: #555;">Näytä status:</label>
+        <select id="club-students-status" onchange="setClubStudentsFilter(this.value)" style="padding: 8px 12px; border: 1px solid #ced4da; border-radius: 6px; background: #fff; min-width: 160px;">
+          ${selectOptions}
+        </select>
+        <span style="color: #888; font-size: 0.9em;">${students.length} oppilasta</span>
+      </div>
       <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px;">
   `;
 
