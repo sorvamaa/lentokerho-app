@@ -98,6 +98,20 @@ app.use((req, res, next) => {
     next();
   });
 });
+// Cache-bust app.js and style.css on every deploy (server restart = new version)
+const ASSET_VERSION = Date.now().toString();
+function serveIndex(req, res) {
+  fs.readFile(path.join(__dirname, 'public', 'index.html'), 'utf8', (err, html) => {
+    if (err) return res.status(500).send('Error loading page');
+    const bustered = html
+      .replace('href="style.css"', `href="style.css?v=${ASSET_VERSION}"`)
+      .replace('src="app.js"', `src="app.js?v=${ASSET_VERSION}"`);
+    res.setHeader('Cache-Control', 'no-cache');
+    res.send(bustered);
+  });
+}
+app.get('/', serveIndex);
+app.get('/index.html', serveIndex);
 app.use(express.static('public'));
 
 // ============================================================================
