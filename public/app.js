@@ -758,7 +758,10 @@ async function renderClubStudentsProgress() {
 
   let html = `
     <div style="padding: 20px;">
-      <h1 style="margin: 0 0 8px 0;">Oppilaat</h1>
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px;">
+        <h1 style="margin: 0;">Oppilaat</h1>
+        <button class="btn btn-primary" onclick="showAddStudentModal()">+ Lisää oppilas</button>
+      </div>
       <p style="color: #666; margin-bottom: 16px;">Teorian ja lentojen edistyminen. Vihreä piste = kaikki valmista.</p>
       <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
         <label for="club-students-status" style="color: #555;">Näytä status:</label>
@@ -887,7 +890,7 @@ async function handleAddStudent(event) {
   if (result) {
     hideModal();
     showSuccess('Oppilas lisätty');
-    renderStudentList();
+    navigate();
   }
 }
 
