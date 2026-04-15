@@ -1016,9 +1016,12 @@ async function loadFlightsTab(studentId) {
       </div>
     </div>
 
-    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-      <h2>Lennot</h2>
-      ${(isInstructor || (isStudent && currentUser.id == studentId)) ? `<button class="btn btn-primary" onclick="showFlightModal(${studentId})">+ Lisää lento</button>` : ''}
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 8px;">
+      <h2 style="margin: 0;">Lennot</h2>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        ${flights.length > 0 ? `<button class="btn btn-secondary" onclick="printFlightLogbook(${studentId})">Tulosta lentopäiväkirja</button>` : ''}
+        ${(isInstructor || (isStudent && currentUser.id == studentId)) ? `<button class="btn btn-primary" onclick="showFlightModal(${studentId})">+ Lisää lento</button>` : ''}
+      </div>
     </div>
 
     <div style="overflow-x: auto;">
@@ -1064,6 +1067,106 @@ async function loadFlightsTab(studentId) {
 
   html += '</tbody></table></div>';
   $('flights-content').innerHTML = html;
+}
+
+async function printFlightLogbook(studentId) {
+  const [student, flightData] = await Promise.all([
+    api('GET', `/api/students/${studentId}`),
+    api('GET', `/api/students/${studentId}/flights`)
+  ]);
+  if (!student || !flightData) return;
+
+  const flights = (flightData.flights || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+  const printedAt = new Date().toLocaleDateString('fi-FI');
+
+  const rows = flights.map((f, i) => {
+    const typeLabel = f.flight_type === 'low' ? 'Matala' : 'Korkea';
+    const approval = f.is_approval_flight ? ' (tarkistuslento)' : '';
+    return `
+      <tr>
+        <td>${i + 1}</td>
+        <td>${escapeHtml(formatDate(f.date))}</td>
+        <td>${escapeHtml(f.site_name || '-')}</td>
+        <td>${typeLabel}${approval}</td>
+        <td style="text-align: center;">${f.flight_count}</td>
+        <td>${escapeHtml(f.weather || '-')}</td>
+        <td>${escapeHtml(f.exercises || '-')}</td>
+        <td>${escapeHtml(f.notes || '-')}</td>
+      </tr>
+    `;
+  }).join('');
+
+  const totalFlights = flights.reduce((sum, f) => sum + (f.flight_count || 0), 0);
+  const lowFlights = flights.filter(f => f.flight_type === 'low').reduce((s, f) => s + (f.flight_count || 0), 0);
+  const highFlights = flights.filter(f => f.flight_type === 'high').reduce((s, f) => s + (f.flight_count || 0), 0);
+
+  const html = `<!DOCTYPE html>
+<html lang="fi">
+<head>
+  <meta charset="UTF-8">
+  <title>Lentopäiväkirja – ${escapeHtml(student.name)}</title>
+  <style>
+    body { font-family: Arial, sans-serif; color: #222; margin: 24px; font-size: 11pt; }
+    h1 { margin: 0 0 4px 0; font-size: 20pt; }
+    .meta { color: #555; margin-bottom: 16px; font-size: 10pt; }
+    .meta p { margin: 2px 0; }
+    .summary { margin-bottom: 14px; font-size: 10pt; }
+    table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+    th, td { border: 1px solid #888; padding: 5px 6px; text-align: left; vertical-align: top; }
+    th { background: #eee; }
+    tr { page-break-inside: avoid; }
+    .actions { margin-bottom: 16px; }
+    .actions button { padding: 8px 16px; font-size: 11pt; cursor: pointer; }
+    @media print {
+      .actions { display: none; }
+      body { margin: 12mm; }
+    }
+  </style>
+</head>
+<body>
+  <div class="actions">
+    <button onclick="window.print()">Tulosta</button>
+    <button onclick="window.close()">Sulje</button>
+  </div>
+  <h1>Lentopäiväkirja</h1>
+  <div class="meta">
+    <p><strong>Oppilas:</strong> ${escapeHtml(student.name)}</p>
+    ${student.club_name ? `<p><strong>Kerho:</strong> ${escapeHtml(student.club_name)}</p>` : ''}
+    ${student.course_started ? `<p><strong>Kurssi aloitettu:</strong> ${escapeHtml(formatDate(student.course_started))}</p>` : ''}
+    <p><strong>Tulostettu:</strong> ${printedAt}</p>
+  </div>
+  <div class="summary">
+    <strong>Yhteenveto:</strong> ${flights.length} merkintää, ${totalFlights} lentoa yhteensä
+    (matalia ${lowFlights}, korkeita ${highFlights})
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Päivä</th>
+        <th>Paikka</th>
+        <th>Tyyppi</th>
+        <th>Lentoja</th>
+        <th>Sää</th>
+        <th>Harjoitukset</th>
+        <th>Muistiinpanot</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows}
+    </tbody>
+  </table>
+</body>
+</html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) {
+    showError('Ponnahdusikkuna estetty — salli ponnahdusikkunat tälle sivulle');
+    return;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
 }
 
 async function loadTheoryTab(studentId) {
