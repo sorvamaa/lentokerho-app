@@ -1126,11 +1126,13 @@ async function rejectFlight(flightId, studentId) {
 }
 
 async function printFlightLogbook(studentId) {
-  const [student, flightData] = await Promise.all([
+  const [student, flightData, clubData] = await Promise.all([
     api('GET', `/api/students/${studentId}`),
-    api('GET', `/api/students/${studentId}/flights`)
+    api('GET', `/api/students/${studentId}/flights`),
+    api('GET', '/api/my-club')
   ]);
   if (!student || !flightData) return;
+  const club = (clubData && clubData.club) || {};
 
   const flights = (flightData.flights || []).slice().sort((a, b) => (a.date || '').localeCompare(b.date || ''));
   const printedAt = new Date().toLocaleDateString('fi-FI');
@@ -1164,6 +1166,8 @@ async function printFlightLogbook(studentId) {
   <style>
     body { font-family: Arial, sans-serif; color: #222; margin: 24px; font-size: 11pt; }
     h1 { margin: 0 0 4px 0; font-size: 20pt; }
+    .header-row { display: flex; align-items: center; gap: 16px; margin-bottom: 12px; }
+    .header-row img { max-height: 60px; max-width: 120px; object-fit: contain; }
     .meta { color: #555; margin-bottom: 16px; font-size: 10pt; }
     .meta p { margin: 2px 0; }
     .summary { margin-bottom: 14px; font-size: 10pt; }
@@ -1184,10 +1188,15 @@ async function printFlightLogbook(studentId) {
     <button onclick="window.print()">Tulosta</button>
     <button onclick="window.close()">Sulje</button>
   </div>
-  <h1>Lentopäiväkirja</h1>
+  <div class="header-row">
+    ${club.logo_path ? `<img src="/api/clubs/${club.id}/logo" alt="">` : ''}
+    <div>
+      <h1>Lentopäiväkirja</h1>
+      ${club.name ? `<div style="font-size: 11pt; color: #555;">${escapeHtml(club.name)}</div>` : ''}
+    </div>
+  </div>
   <div class="meta">
     <p><strong>Oppilas:</strong> ${escapeHtml(student.name)}</p>
-    ${student.club_name ? `<p><strong>Kerho:</strong> ${escapeHtml(student.club_name)}</p>` : ''}
     ${student.course_started ? `<p><strong>Kurssi aloitettu:</strong> ${escapeHtml(formatDate(student.course_started))}</p>` : ''}
     <p><strong>Tulostettu:</strong> ${printedAt}</p>
   </div>
@@ -1957,15 +1966,67 @@ async function renderSettings() {
   const mainContent = $('main-content');
   mainContent.innerHTML = '<p style="text-align: center; padding: 40px;">Ladataan...</p>';
 
-  const data = await api('GET', '/api/club-settings');
-  if (!data) return;
+  const [settingsData, clubData] = await Promise.all([
+    api('GET', '/api/club-settings'),
+    api('GET', '/api/my-club')
+  ]);
+  if (!settingsData || !clubData) return;
 
-  const settings = data.settings || {};
+  const settings = settingsData.settings || {};
+  const club = clubData.club || {};
+
+  const logoUrl = club.logo_path ? `/api/clubs/${club.id}/logo` : null;
 
   let html = `
     <div style="padding: 20px; max-width: 600px;">
       <h1>Kerhon asetukset</h1>
       <p style="color: #666; margin-bottom: 24px;">Nämä asetukset vaikuttavat koko kerhon toimintaan. Vain koulutuspäällikkö voi muuttaa asetuksia.</p>
+
+      <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px; margin-bottom: 24px;">
+        <h2 style="margin: 0 0 16px 0; font-size: 1.1em;">Kerhon tiedot</h2>
+
+        <div style="display: flex; align-items: center; gap: 20px; margin-bottom: 20px;">
+          <div style="width: 80px; height: 80px; border-radius: 8px; border: 2px dashed #ccc; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0; background: #fff;">
+            ${logoUrl ? `<img src="${logoUrl}" alt="Logo" style="max-width: 100%; max-height: 100%; object-fit: contain;">` : '<span style="color: #aaa; font-size: 0.8em; text-align: center;">Ei logoa</span>'}
+          </div>
+          <div>
+            <input type="file" id="club-logo-input" accept="image/jpeg,image/png" style="display: none;" onchange="uploadClubLogo()">
+            <button class="btn btn-secondary" onclick="document.getElementById('club-logo-input').click()" style="margin-bottom: 4px;">Vaihda logo</button>
+            ${logoUrl ? '<button class="btn btn-small btn-danger" onclick="deleteClubLogo()" style="margin-left: 8px;">Poista</button>' : ''}
+            <p style="color: #888; font-size: 0.8em; margin: 4px 0 0 0;">JPG tai PNG, näkyy tulosteissa</p>
+          </div>
+        </div>
+
+        <form onsubmit="saveClubDetails(event)">
+          <div style="display: grid; gap: 12px;">
+            <div>
+              <label style="display: block; font-weight: bold; margin-bottom: 4px;">Kerhon nimi</label>
+              <input type="text" id="club-name" value="${escapeHtml(club.name || '')}" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+            </div>
+            <div>
+              <label style="display: block; font-weight: bold; margin-bottom: 4px;">Kuvaus</label>
+              <textarea id="club-description" style="width: 100%; padding: 8px; box-sizing: border-box; min-height: 60px;">${escapeHtml(club.description || '')}</textarea>
+            </div>
+            <div>
+              <label style="display: block; font-weight: bold; margin-bottom: 4px;">Yhteyssähköposti</label>
+              <input type="email" id="club-contact-email" value="${escapeHtml(club.contact_email || '')}" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            </div>
+            <div>
+              <label style="display: block; font-weight: bold; margin-bottom: 4px;">Yhteyshenkilön puhelin</label>
+              <input type="tel" id="club-contact-phone" value="${escapeHtml(club.contact_phone || '')}" style="width: 100%; padding: 8px; box-sizing: border-box;">
+            </div>
+            <div>
+              <label style="display: block; font-weight: bold; margin-bottom: 4px;">Verkkosivu</label>
+              <input type="url" id="club-website" value="${escapeHtml(club.website || '')}" placeholder="https://..." style="width: 100%; padding: 8px; box-sizing: border-box;">
+            </div>
+          </div>
+          <div style="margin-top: 16px;">
+            <button type="submit" class="btn btn-primary">Tallenna tiedot</button>
+          </div>
+        </form>
+      </div>
+
+      <h2 style="font-size: 1.1em; margin-bottom: 12px;">Koulutusasetukset</h2>
 
       <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
         <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px;">
@@ -1988,6 +2049,54 @@ async function renderSettings() {
   `;
 
   mainContent.innerHTML = html;
+}
+
+async function saveClubDetails(event) {
+  event.preventDefault();
+  const payload = {
+    name: $('club-name').value.trim(),
+    description: $('club-description').value.trim(),
+    contact_email: $('club-contact-email').value.trim(),
+    contact_phone: $('club-contact-phone').value.trim(),
+    website: $('club-website').value.trim()
+  };
+  if (!payload.name) { showError('Kerhon nimi vaaditaan'); return; }
+  const result = await api('PUT', '/api/my-club', payload);
+  if (result) {
+    showSuccess('Tiedot tallennettu');
+    renderSettings();
+  }
+}
+
+async function uploadClubLogo() {
+  const input = $('club-logo-input');
+  if (!input.files || !input.files[0]) return;
+  const formData = new FormData();
+  formData.append('logo', input.files[0]);
+  try {
+    const response = await fetch('/api/my-club/logo', {
+      method: 'POST',
+      headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {},
+      body: formData
+    });
+    if (response.ok) {
+      showSuccess('Logo päivitetty');
+      renderSettings();
+    } else {
+      const err = await response.json();
+      showError(err.error || 'Logon lataus epäonnistui');
+    }
+  } catch(e) {
+    showError('Logon lataus epäonnistui');
+  }
+}
+
+async function deleteClubLogo() {
+  const result = await api('DELETE', '/api/my-club/logo');
+  if (result) {
+    showSuccess('Logo poistettu');
+    renderSettings();
+  }
 }
 
 async function saveClubSetting(key, value) {

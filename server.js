@@ -2091,6 +2091,84 @@ app.put('/api/club-settings', requireAuth, requireChiefInstructor, async (req, r
 });
 
 // ============================================================================
+// MY CLUB ROUTES (Chief instructor)
+// ============================================================================
+
+app.get('/api/my-club', requireAuth, requireInstructor, async (req, res) => {
+  const db = getDb();
+  const user = await db.prepare('SELECT club_id FROM users WHERE id = ?').get(req.session.userId);
+  if (!user || !user.club_id) return res.status(400).json({ error: 'No club' });
+  const club = await db.prepare('SELECT * FROM clubs WHERE id = ?').get(user.club_id);
+  res.json({ club });
+});
+
+app.put('/api/my-club', requireAuth, requireChiefInstructor, async (req, res) => {
+  const db = getDb();
+  const user = await db.prepare('SELECT club_id FROM users WHERE id = ?').get(req.session.userId);
+  if (!user || !user.club_id) return res.status(400).json({ error: 'No club' });
+
+  const { name, description, contact_email, contact_phone, website } = req.body;
+  const updates = [];
+  const values = [];
+  if (name !== undefined) { updates.push('name = ?'); values.push(name); }
+  if (description !== undefined) { updates.push('description = ?'); values.push(description); }
+  if (contact_email !== undefined) { updates.push('contact_email = ?'); values.push(contact_email || null); }
+  if (contact_phone !== undefined) { updates.push('contact_phone = ?'); values.push(contact_phone || null); }
+  if (website !== undefined) { updates.push('website = ?'); values.push(website || null); }
+
+  if (updates.length > 0) {
+    values.push(user.club_id);
+    await db.prepare(`UPDATE clubs SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  }
+
+  await logAction(req.session.userId, 'UPDATE', 'club', user.club_id, { fields: Object.keys(req.body) });
+  const club = await db.prepare('SELECT * FROM clubs WHERE id = ?').get(user.club_id);
+  res.json({ club });
+});
+
+app.post('/api/my-club/logo', requireAuth, requireChiefInstructor, upload.single('logo'), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+  const db = getDb();
+  const user = await db.prepare('SELECT club_id FROM users WHERE id = ?').get(req.session.userId);
+  if (!user || !user.club_id) return res.status(400).json({ error: 'No club' });
+
+  // Delete old logo file if exists
+  const club = await db.prepare('SELECT logo_path FROM clubs WHERE id = ?').get(user.club_id);
+  if (club && club.logo_path) {
+    const oldPath = path.join(UPLOAD_DIR, club.logo_path);
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+
+  await db.prepare('UPDATE clubs SET logo_path = ? WHERE id = ?').run(req.file.filename, user.club_id);
+  await logAction(req.session.userId, 'UPDATE', 'club_logo', user.club_id, {});
+  res.json({ logo_path: req.file.filename });
+});
+
+app.delete('/api/my-club/logo', requireAuth, requireChiefInstructor, async (req, res) => {
+  const db = getDb();
+  const user = await db.prepare('SELECT club_id FROM users WHERE id = ?').get(req.session.userId);
+  if (!user || !user.club_id) return res.status(400).json({ error: 'No club' });
+
+  const club = await db.prepare('SELECT logo_path FROM clubs WHERE id = ?').get(user.club_id);
+  if (club && club.logo_path) {
+    const oldPath = path.join(UPLOAD_DIR, club.logo_path);
+    if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+  }
+  await db.prepare('UPDATE clubs SET logo_path = NULL WHERE id = ?').run(user.club_id);
+  res.json({ success: true });
+});
+
+app.get('/api/clubs/:id/logo', async (req, res) => {
+  const db = getDb();
+  const club = await db.prepare('SELECT logo_path FROM clubs WHERE id = ?').get(req.params.id);
+  if (!club || !club.logo_path) return res.status(404).json({ error: 'No logo' });
+  const filepath = path.join(UPLOAD_DIR, club.logo_path);
+  if (!fs.existsSync(filepath)) return res.status(404).json({ error: 'File not found' });
+  res.sendFile(path.resolve(filepath));
+});
+
+// ============================================================================
 // AUDIT LOG ROUTE
 // ============================================================================
 
@@ -2558,6 +2636,10 @@ initDb().then(async () => {
     const db = getDb();
     const pool = db.getPool();
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_chief INTEGER DEFAULT 0`);
+    await pool.query(`ALTER TABLE clubs ADD COLUMN IF NOT EXISTS contact_email TEXT DEFAULT NULL`);
+    await pool.query(`ALTER TABLE clubs ADD COLUMN IF NOT EXISTS contact_phone TEXT DEFAULT NULL`);
+    await pool.query(`ALTER TABLE clubs ADD COLUMN IF NOT EXISTS website TEXT DEFAULT NULL`);
+    await pool.query(`ALTER TABLE clubs ADD COLUMN IF NOT EXISTS logo_path TEXT DEFAULT NULL`);
     await pool.query(`ALTER TABLE flights ADD COLUMN IF NOT EXISTS approved INTEGER DEFAULT NULL`);
     await pool.query(`ALTER TABLE flights ADD COLUMN IF NOT EXISTS approved_by INTEGER DEFAULT NULL`);
     await pool.query(`ALTER TABLE flights ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP DEFAULT NULL`);
