@@ -288,11 +288,49 @@ async function init() {
     showAppView();
     if (currentUser.must_change_password) {
       renderForcePasswordChange();
+    } else if (!currentUser.privacy_accepted_at) {
+      renderPrivacyAcceptance();
     } else {
       navigate();
     }
   } else {
     showLoginView();
+  }
+}
+
+function renderPrivacyAcceptance() {
+  const sidebar = document.getElementById('sidebar');
+  if (sidebar) sidebar.style.display = 'none';
+  const mainContent = $('main-content');
+  mainContent.innerHTML = `
+    <div style="max-width: 540px; margin: 40px auto; background: #fff; border: 1px solid #dee2e6; border-radius: 10px; padding: 28px; box-shadow: 0 4px 12px rgba(0,0,0,0.08);">
+      <h2 style="margin-top: 0;">Tietosuojaseloste</h2>
+      <p style="color: #555;">Ennen kuin voit käyttää PilottiPolkua, sinun tulee tutustua tietosuojaselosteeseen ja hyväksyä henkilötietojesi käsittely.</p>
+      <p><a href="/docs/tietosuoja.html" target="_blank" rel="noopener" style="color: #2E6DA4;">Avaa tietosuojaseloste uudessa välilehdessä</a></p>
+      <div style="margin-top: 20px; padding: 16px; background: #f8f9fa; border-radius: 6px;">
+        <label style="display: flex; align-items: flex-start; gap: 10px; cursor: pointer;">
+          <input type="checkbox" id="privacy-checkbox" style="margin-top: 4px; flex-shrink: 0;">
+          <span>Olen lukenut ja hyväksyn <a href="/docs/tietosuoja.html" target="_blank" rel="noopener">tietosuojaselosteen</a>. Ymmärrän, miten henkilötietojani käsitellään.</span>
+        </label>
+      </div>
+      <div style="margin-top: 16px; text-align: right;">
+        <button class="btn btn-primary" id="privacy-accept-btn" disabled onclick="handlePrivacyAccept()">Hyväksy ja jatka</button>
+      </div>
+    </div>
+  `;
+  $('privacy-checkbox').addEventListener('change', function() {
+    $('privacy-accept-btn').disabled = !this.checked;
+  });
+}
+
+async function handlePrivacyAccept() {
+  const result = await api('POST', '/api/accept-privacy');
+  if (result) {
+    currentUser.privacy_accepted_at = new Date().toISOString();
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar) sidebar.style.display = '';
+    setupNavigation();
+    navigate();
   }
 }
 
@@ -371,6 +409,10 @@ async function handleLogin() {
       renderForcePasswordChange();
       return;
     }
+    if (!currentUser.privacy_accepted_at) {
+      renderPrivacyAcceptance();
+      return;
+    }
     if (currentUser.role === 'student') {
       window.location.hash = '#student/' + currentUser.id;
     } else {
@@ -441,6 +483,7 @@ function setupNavigation() {
       <li><a href="#sites" class="nav-link" data-nav-link="sites">Lentopaikat</a></li>
       <li><a href="#theory-management" class="nav-link" data-nav-link="theory-management">Teoria</a></li>
       <li><a href="/docs/oppilas.html" class="nav-link" target="_blank" rel="noopener">Ohje</a></li>
+      <li><a href="/docs/tietosuoja.html" class="nav-link" target="_blank" rel="noopener" style="font-size: 0.9em; color: #9CA3AF;">Tietosuojaseloste</a></li>
     `;
   } else {
     // Add settings link for chief instructors
@@ -608,6 +651,21 @@ async function renderDashboard() {
   }
 
   html += '</tbody></table></div>';
+
+  // Retention warnings
+  const retentionWarnings = data.retention_warnings || [];
+  if (retentionWarnings.length > 0) {
+    html += `
+      <div style="margin-top: 30px; background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px; padding: 16px 20px;">
+        <h2 style="margin: 0 0 8px 0; color: #856404;">Tietojen säilytysaika ylittynyt (GDPR)</h2>
+        <p style="color: #856404; margin: 0 0 12px 0;">Seuraavien oppilaiden kurssin aloituksesta on yli 10 vuotta. Henkilötiedot tulisi anonymisoida tai poistaa tietosuojaselosteen mukaisesti.</p>
+        <ul style="margin: 0; padding-left: 20px;">
+    `;
+    retentionWarnings.forEach(w => {
+      html += `<li style="margin: 4px 0;"><a href="#student/${w.id}" style="color: #856404;">${escapeHtml(w.name)}</a> — kurssi aloitettu ${formatDate(w.course_started)}, status: ${w.status || 'ei asetettu'}</li>`;
+    });
+    html += '</ul></div>';
+  }
 
   // Recent events
   html += `
@@ -911,6 +969,43 @@ async function handleAddStudent(event) {
 // STUDENT DETAIL VIEW
 // ============================================================================
 
+function anonymizeStudentConfirm(studentId, name) {
+  showConfirm(
+    `Anonymisoi oppilaan ${name} henkilötiedot? Nimi, sähköposti, puhelin ja liitteet poistetaan pysyvästi. Lentokirjaukset ja teoriasuoritukset säilytetään anonymisoituna. Tätä toimintoa EI voi perua.`,
+    () => anonymizeStudent(studentId),
+    { confirmText: 'Kyllä, anonymisoi', confirmClass: 'btn-danger' }
+  );
+}
+
+async function anonymizeStudent(studentId) {
+  const result = await api('POST', `/api/students/${studentId}/anonymize`);
+  if (result) {
+    showSuccess('Oppilas anonymisoitu');
+    navigate();
+  }
+}
+
+async function downloadMyData() {
+  try {
+    const response = await fetch('/api/me/data-export', {
+      headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
+    });
+    if (!response.ok) throw new Error('Export failed');
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = response.headers.get('Content-Disposition')?.match(/filename="(.+)"/)?.[1] || 'pilottipolku-data.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showSuccess('Tiedot ladattu');
+  } catch(e) {
+    showError('Tietojen lataus epäonnistui');
+  }
+}
+
 async function renderStudentDetail(id) {
   const mainContent = $('main-content');
   mainContent.innerHTML = '<p style="text-align: center; padding: 40px;">Ladataan...</p>';
@@ -937,12 +1032,18 @@ async function renderStudentDetail(id) {
           <p style="margin: 2px 0;"><strong>Sähköposti:</strong> ${escapeHtml(student.email)}</p>
           <p style="margin: 2px 0;"><strong>Puhelin:</strong> ${escapeHtml(student.phone || '-')}</p>
         </div>
-        ${isInstructor ? `
-          <div style="display: flex; gap: 8px;">
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          ${isInstructor ? `
             <button class="btn btn-secondary" onclick="showEditStudentModal(${id})">Muokkaa</button>
             <button class="btn btn-secondary" onclick="showResetPasswordModal(${id}, '${escapeHtml(student.name)}')">Nollaa salasana</button>
-          </div>
-        ` : ''}
+          ` : ''}
+          ${isStudent && currentUser.id == id ? `
+            <button class="btn btn-secondary" onclick="downloadMyData()">Lataa omat tiedot</button>
+          ` : ''}
+          ${currentUser && currentUser.role === 'admin' ? `
+            <button class="btn btn-small btn-danger" onclick="anonymizeStudentConfirm(${id}, '${escapeHtml(student.name)}')">Anonymisoi (GDPR)</button>
+          ` : ''}
+        </div>
       </div>
 
       <div class="tabs">

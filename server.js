@@ -302,7 +302,7 @@ const getUserClubId = async (req) => {
 // Helper: Get user object without password
 const getUserWithoutPassword = async (userId) => {
   const db = getDb();
-  return await db.prepare('SELECT id, username, email, name, role, phone, must_change_password, is_chief FROM users WHERE id = ?').get(userId);
+  return await db.prepare('SELECT id, username, email, name, role, phone, must_change_password, is_chief, privacy_accepted_at FROM users WHERE id = ?').get(userId);
 };
 
 // Middleware: Sanitize request body strings to prevent XSS
@@ -397,6 +397,102 @@ app.post('/api/change-password', requireAuth, async (req, res) => {
   await db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hashedPassword, userId);
 
   await logAction(userId, 'CHANGE_PASSWORD', 'user', userId, {});
+  res.json({ success: true });
+});
+
+// GET /api/me/data-export — GDPR article 20 data portability
+app.get('/api/me/data-export', requireAuth, async (req, res) => {
+  const db = getDb();
+  const userId = req.session.userId;
+
+  const user = await db.prepare(
+    'SELECT id, username, email, name, phone, role, status, course_started, pp2_exam_passed, pp2_exam_date, privacy_accepted_at, created_at FROM users WHERE id = ?'
+  ).get(userId);
+
+  const flights = await db.prepare(
+    `SELECT f.date, f.flight_count, f.flight_type, s.name as site_name, f.weather, f.exercises, f.notes, f.is_approval_flight, f.approved, f.created_at
+     FROM flights f LEFT JOIN sites s ON f.site_id = s.id WHERE f.student_id = ? ORDER BY f.date`
+  ).all(userId);
+
+  const theory = await db.prepare(
+    'SELECT topic_key, completed_at FROM theory_completions WHERE student_id = ? ORDER BY completed_at'
+  ).all(userId);
+
+  const equipment = await db.prepare(
+    'SELECT * FROM student_equipment WHERE student_id = ?'
+  ).get(userId);
+
+  const attachments = await db.prepare(
+    'SELECT original_name, mime_type, size, created_at FROM attachments WHERE student_id = ?'
+  ).all(userId);
+
+  const club = user.role !== 'admin' ? await db.prepare(
+    'SELECT name FROM clubs WHERE id = (SELECT club_id FROM users WHERE id = ?)'
+  ).get(userId) : null;
+
+  const exportData = {
+    exported_at: new Date().toISOString(),
+    profile: {
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      username: user.username,
+      role: user.role,
+      status: user.status,
+      club: club ? club.name : null,
+      course_started: user.course_started,
+      pp2_exam_passed: !!user.pp2_exam_passed,
+      pp2_exam_date: user.pp2_exam_date,
+      privacy_accepted_at: user.privacy_accepted_at,
+      account_created: user.created_at
+    },
+    flights: flights,
+    theory_completions: theory,
+    equipment: equipment || null,
+    attachments: attachments.map(a => ({ name: a.original_name, type: a.mime_type, size: a.size, uploaded: a.created_at }))
+  };
+
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Content-Disposition', `attachment; filename="pilottipolku-data-${user.username}-${new Date().toISOString().split('T')[0]}.json"`);
+  res.json(exportData);
+});
+
+// POST /api/students/:id/anonymize — GDPR right to be forgotten (admin only)
+app.post('/api/students/:id/anonymize', requireAuth, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const student = await db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(id, 'student');
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+
+  const anonymizedName = `Anonymisoitu käyttäjä #${id}`;
+  const anonymizedEmail = `anonymized-${id}@removed.invalid`;
+  const anonymizedUsername = `anon_${id}_${Date.now()}`;
+
+  await db.prepare(`
+    UPDATE users SET
+      name = ?, email = ?, username = ?, phone = NULL,
+      student_notes = NULL, password_hash = 'ANONYMIZED'
+    WHERE id = ?
+  `).run(anonymizedName, anonymizedEmail, anonymizedUsername, id);
+
+  // Remove attachments files from disk
+  const attachments = await db.prepare('SELECT stored_name FROM attachments WHERE student_id = ?').all(id);
+  for (const att of attachments) {
+    const filepath = path.join(UPLOAD_DIR, att.stored_name);
+    if (fs.existsSync(filepath)) fs.unlinkSync(filepath);
+  }
+  await db.prepare('DELETE FROM attachments WHERE student_id = ?').run(id);
+
+  await logAction(req.session.userId, 'ANONYMIZE', 'student', id, { original_name: student.name });
+  res.json({ success: true });
+});
+
+// POST /api/accept-privacy
+app.post('/api/accept-privacy', requireAuth, async (req, res) => {
+  const db = getDb();
+  await db.prepare('UPDATE users SET privacy_accepted_at = ? WHERE id = ?').run(new Date().toISOString(), req.session.userId);
+  await logAction(req.session.userId, 'ACCEPT_PRIVACY', 'user', req.session.userId, {});
   res.json({ success: true });
 });
 
@@ -2077,6 +2173,15 @@ app.get('/api/dashboard', requireAuth, requireInstructor, async (req, res) => {
     )
   `).all(...clubParams, thirtyDaysAgo);
 
+  // Retention warnings: students whose course_started is over 10 years ago
+  const tenYearsAgo = new Date(Date.now() - 10 * 365.25 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const retentionWarnings = await db.prepare(`
+    SELECT u.id, u.name, u.status, u.course_started
+    FROM users u
+    WHERE u.role = 'student' AND u.course_started IS NOT NULL AND u.course_started < ?${clubWhere}
+    ORDER BY u.course_started ASC
+  `).all(tenYearsAgo, ...clubParams);
+
   res.json({
     stats: {
       active_students: parseInt(activeStudents.count),
@@ -2086,7 +2191,8 @@ app.get('/api/dashboard', requireAuth, requireInstructor, async (req, res) => {
     },
     students: studentsWithStats,
     recent_events: events,
-    inactive_warnings: inactiveWarnings
+    inactive_warnings: inactiveWarnings,
+    retention_warnings: retentionWarnings
   });
 });
 
@@ -2667,6 +2773,7 @@ initDb().then(async () => {
     const db = getDb();
     const pool = db.getPool();
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_chief INTEGER DEFAULT 0`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_accepted_at TIMESTAMP DEFAULT NULL`);
     await pool.query(`ALTER TABLE clubs ADD COLUMN IF NOT EXISTS contact_email TEXT DEFAULT NULL`);
     await pool.query(`ALTER TABLE clubs ADD COLUMN IF NOT EXISTS contact_phone TEXT DEFAULT NULL`);
     await pool.query(`ALTER TABLE clubs ADD COLUMN IF NOT EXISTS website TEXT DEFAULT NULL`);
