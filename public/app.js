@@ -200,12 +200,14 @@ function hideModal() {
   if (modal) modal.style.display = 'none';
 }
 
-function showConfirm(message, onConfirm) {
+function showConfirm(message, onConfirm, options = {}) {
+  const btnText = options.confirmText || 'Kyllä, poista';
+  const btnClass = options.confirmClass || 'btn-danger';
   const html = `
     <p>${escapeHtml(message)}</p>
     <div style="margin-top: 20px; text-align: right;">
       <button class="btn btn-secondary" onclick="hideModal()">Peruuta</button>
-      <button class="btn btn-danger" onclick="window._confirmAction()">Kyllä, poista</button>
+      <button class="btn ${btnClass}" onclick="window._confirmAction()">${escapeHtml(btnText)}</button>
     </div>
   `;
   showModal('Vahvistus', html);
@@ -1959,9 +1961,9 @@ async function handleAddInstructor(event) {
 function setChiefConfirm(instructorId, name) {
   const isCurrentChief = currentUser && currentUser.is_chief && currentUser.role !== 'admin';
   const msg = isCurrentChief
-    ? `Haluatko siirtää koulutuspäällikön roolin ohjaajalle ${name}? Menetät omat koulutuspäällikkö-oikeutesi.`
-    : `Aseta ${name} kerhon koulutuspäälliköksi?`;
-  showConfirm(msg, () => setChief(instructorId));
+    ? `Haluatko siirtää koulutuspäällikön roolin ohjaajalle ${name}? Kerhossa voi olla vain yksi koulutuspäällikkö, joten menetät omat koulutuspäällikkö-oikeutesi.`
+    : `Vaihda kerhon koulutuspäällikkö ohjaajaksi ${name}? Kerhossa voi olla kerrallaan vain yksi koulutuspäällikkö, joten nykyisen koulutuspäällikön rooli poistuu.`;
+  showConfirm(msg, () => setChief(instructorId), { confirmText: 'Kyllä', confirmClass: 'btn-primary' });
 }
 
 async function setChief(instructorId) {
