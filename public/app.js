@@ -1846,6 +1846,16 @@ async function renderInstructors() {
   instructors.forEach(instructor => {
     const isSelf = currentUser && currentUser.id === instructor.id;
     const chiefBadge = instructor.is_chief ? ' <span style="background: #d4a017; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 0.8em;">Koulutuspäällikkö</span>' : '';
+
+    let actions = '';
+    if (isSelf) {
+      actions = '<span style="background: #2E6DA4; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">Sinä</span>';
+    } else if (isChief) {
+      const setChiefBtn = !instructor.is_chief ? `<button class="btn btn-small" style="background: #d4a017; color: #fff; border: none;" onclick="setChiefConfirm(${instructor.id}, '${escapeHtml(instructor.name)}')">Aseta koulutuspäälliköksi</button> ` : '';
+      const deleteBtn = `<button class="btn btn-small btn-danger" onclick="deleteInstructorConfirm(${instructor.id})">Poista</button>`;
+      actions = setChiefBtn + deleteBtn;
+    }
+
     html += `
       <tr style="border-bottom: 1px solid #dee2e6;">
         <td style="padding: 10px;">${escapeHtml(instructor.name)}${chiefBadge}</td>
@@ -1853,7 +1863,7 @@ async function renderInstructors() {
         <td style="padding: 10px;">${escapeHtml(instructor.email)}</td>
         <td style="padding: 10px;">${escapeHtml(instructor.phone || '-')}</td>
         <td style="padding: 10px;">
-          ${isSelf ? '<span style="background: #2E6DA4; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">Sinä</span>' : (isChief ? `<button class="btn btn-small btn-danger" onclick="deleteInstructorConfirm(${instructor.id})">Poista</button>` : '')}
+          ${actions}
         </td>
       </tr>
     `;
@@ -1942,6 +1952,25 @@ async function handleAddInstructor(event) {
   if (result) {
     hideModal();
     showSuccess('Ohjaaja lisätty');
+    renderInstructors();
+  }
+}
+
+function setChiefConfirm(instructorId, name) {
+  const isCurrentChief = currentUser && currentUser.is_chief && currentUser.role !== 'admin';
+  const msg = isCurrentChief
+    ? `Haluatko siirtää koulutuspäällikön roolin ohjaajalle ${name}? Menetät omat koulutuspäällikkö-oikeutesi.`
+    : `Aseta ${name} kerhon koulutuspäälliköksi?`;
+  showConfirm(msg, () => setChief(instructorId));
+}
+
+async function setChief(instructorId) {
+  const result = await api('PUT', `/api/instructors/${instructorId}/set-chief`);
+  if (result) {
+    showSuccess('Koulutuspäällikkö vaihdettu');
+    // Refresh current user data in case chief was transferred away
+    const me = await api('GET', '/api/me');
+    if (me) { currentUser = me; setupNavigation(); }
     renderInstructors();
   }
 }

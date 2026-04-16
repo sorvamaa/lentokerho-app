@@ -1796,14 +1796,18 @@ app.post('/api/instructors', requireAuth, requireChiefInstructor, async (req, re
 
   const hashedPassword = bcrypt.hashSync(password, 12);
 
-  const result = await db.prepare(
-    'INSERT INTO users (username, email, name, password_hash, phone, role, club_id) VALUES (?, ?, ?, ?, ?, ?, ?)'
-  ).run(username, email, name, hashedPassword, phone || null, 'instructor', targetClubId);
+  // Auto-set as chief if no instructors exist in this club yet
+  const existingInstructors = await db.prepare('SELECT id FROM users WHERE club_id = ? AND role = ?').get(targetClubId, 'instructor');
+  const autoChief = existingInstructors ? 0 : 1;
 
-  await logAction(req.session.userId, 'CREATE', 'instructor', result.lastInsertRowid, { name, email });
+  const result = await db.prepare(
+    'INSERT INTO users (username, email, name, password_hash, phone, role, club_id, is_chief) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+  ).run(username, email, name, hashedPassword, phone || null, 'instructor', targetClubId, autoChief);
+
+  await logAction(req.session.userId, 'CREATE', 'instructor', result.lastInsertRowid, { name, email, is_chief: autoChief });
 
   const instructor = await db.prepare(
-    'SELECT id, username, email, name, phone, club_id FROM users WHERE id = ?'
+    'SELECT id, username, email, name, phone, club_id, is_chief FROM users WHERE id = ?'
   ).get(result.lastInsertRowid);
 
   res.status(201).json(instructor);
@@ -1835,6 +1839,33 @@ app.delete('/api/instructors/:id', requireAuth, requireChiefInstructor, async (r
 
   await logAction(req.session.userId, 'DELETE', 'instructor', id, {});
 
+  res.json({ success: true });
+});
+
+// PUT /api/instructors/:id/set-chief — admin or current chief can transfer the role
+app.put('/api/instructors/:id/set-chief', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const currentUser = await db.prepare('SELECT role, club_id, is_chief FROM users WHERE id = ?').get(req.session.userId);
+  if (!currentUser) return res.status(401).json({ error: 'Unauthorized' });
+
+  const target = await db.prepare('SELECT id, club_id, role FROM users WHERE id = ? AND role = ?').get(id, 'instructor');
+  if (!target) return res.status(404).json({ error: 'Instructor not found' });
+
+  if (currentUser.role === 'admin') {
+    // Admin can set chief for any club
+  } else if (currentUser.role === 'instructor' && currentUser.is_chief && currentUser.club_id === target.club_id) {
+    // Chief can transfer to same club
+  } else {
+    return res.status(403).json({ error: 'Only admin or current chief can change this' });
+  }
+
+  // Remove chief from all instructors in the target club, then set the new one
+  await db.prepare('UPDATE users SET is_chief = 0 WHERE club_id = ? AND role = ?').run(target.club_id, 'instructor');
+  await db.prepare('UPDATE users SET is_chief = 1 WHERE id = ?').run(id);
+
+  await logAction(req.session.userId, 'SET_CHIEF', 'instructor', id, { club_id: target.club_id });
   res.json({ success: true });
 });
 
