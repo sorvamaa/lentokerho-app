@@ -441,15 +441,23 @@ function setupNavigation() {
       <li><a href="/docs/oppilas.html" class="nav-link" target="_blank" rel="noopener">Ohje</a></li>
     `;
   } else {
+    // Add settings link for chief instructors
+    if (currentUser && (currentUser.is_chief || currentUser.role === 'admin')) {
+      if (!sidebarMenu.querySelector('[data-nav-link="settings"]')) {
+        const settingsLi = document.createElement('li');
+        settingsLi.innerHTML = '<a href="#settings" class="nav-link" data-nav-link="settings">Asetukset</a>';
+        const auditLogLi = sidebarMenu.querySelector('[data-nav-link="audit-log"]').parentElement;
+        sidebarMenu.insertBefore(settingsLi, auditLogLi);
+      }
+    }
     // Add clubs link for admin users
     if (currentUser && currentUser.role === 'admin') {
-      if (sidebarMenu.querySelector('[data-nav-link="clubs"]')) return;
-      const clubsLi = document.createElement('li');
-      clubsLi.innerHTML = '<a href="#clubs" class="nav-link" data-nav-link="clubs">Kerhot</a>';
-
-      // Insert before audit-log
-      const auditLogLi = sidebarMenu.querySelector('[data-nav-link="audit-log"]').parentElement;
-      sidebarMenu.insertBefore(clubsLi, auditLogLi);
+      if (!sidebarMenu.querySelector('[data-nav-link="clubs"]')) {
+        const clubsLi = document.createElement('li');
+        clubsLi.innerHTML = '<a href="#clubs" class="nav-link" data-nav-link="clubs">Kerhot</a>';
+        const auditLogLi = sidebarMenu.querySelector('[data-nav-link="audit-log"]').parentElement;
+        sidebarMenu.insertBefore(clubsLi, auditLogLi);
+      }
     }
   }
 }
@@ -504,6 +512,9 @@ function navigate() {
       break;
     case 'theory-management':
       renderTheoryManagement();
+      break;
+    case 'settings':
+      renderSettings();
       break;
     case 'audit-log':
       renderAuditLog();
@@ -999,11 +1010,17 @@ async function loadFlightsTab(studentId) {
 
   const stats = data.student || {};
   const flights = data.flights || [];
+  const requireApproval = data.require_flight_approval;
   const isInstructor = currentUser && (currentUser.role === 'instructor' || currentUser.role === 'admin');
   const isStudent = currentUser && currentUser.role === 'student';
 
+  const pendingCount = requireApproval ? flights.filter(f => f.approved === null).length : 0;
+
   let html = `
     <h2>Edistyminen</h2>
+    ${requireApproval && pendingCount > 0 ? `<div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; font-size: 0.9em;">
+      <strong>${pendingCount}</strong> lentoa odottaa ohjaajan hyväksyntää — nämä eivät vielä näy edistymisessä.
+    </div>` : ''}
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
       <div>${createProgressBar(stats.low_flights || 0, 5, 'Matalia lentoja')}</div>
       <div>${createProgressBar(stats.high_flights || 0, 40, 'Korkeita lentoja')}</div>
@@ -1034,6 +1051,7 @@ async function loadFlightsTab(studentId) {
             <th style="padding: 10px;">Lentoja</th>
             <th style="padding: 10px;">Harjoitukset</th>
             <th style="padding: 10px;">Muistiinpanot</th>
+            ${requireApproval ? '<th style="padding: 10px;">Tila</th>' : ''}
             ${isInstructor ? '<th style="padding: 10px;">Toiminnot</th>' : ''}
           </tr>
         </thead>
@@ -1045,28 +1063,66 @@ async function loadFlightsTab(studentId) {
       const typeLabel = flight.flight_type === 'low' ? 'Matala' : 'Korkea';
       const typeBg = flight.flight_type === 'low' ? '#6c757d' : '#2E6DA4';
       const approvalTag = flight.is_approval_flight ? ' <span style="background: #28a745; color: #fff; padding: 1px 6px; border-radius: 3px; font-size: 0.8em;">Tarkistus</span>' : '';
+
+      let statusBadge = '';
+      if (requireApproval) {
+        if (flight.approved === 1) {
+          statusBadge = '<span style="background: #28a745; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">Hyväksytty</span>';
+        } else if (flight.approved === 0) {
+          statusBadge = '<span style="background: #dc3545; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">Hylätty</span>';
+        } else {
+          statusBadge = '<span style="background: #ffc107; color: #000; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">Odottaa</span>';
+        }
+      }
+
+      let actionBtns = '';
+      if (isInstructor) {
+        let approveBtns = '';
+        if (requireApproval && flight.approved !== 1) {
+          approveBtns = `<button class="btn btn-small" style="background: #28a745; color: #fff; border: none;" onclick="approveFlight(${flight.id}, ${studentId})">Hyväksy</button> `;
+        }
+        if (requireApproval && flight.approved !== 0 && flight.approved !== null) {
+          approveBtns += `<button class="btn btn-small" style="background: #ffc107; color: #000; border: none;" onclick="rejectFlight(${flight.id}, ${studentId})">Hylkää</button> `;
+        }
+        actionBtns = `${approveBtns}<button class="btn btn-small btn-danger" onclick="deleteFlightConfirm(${flight.id})">Poista</button>`;
+      }
+
       html += `
-        <tr style="border-bottom: 1px solid #dee2e6;">
+        <tr style="border-bottom: 1px solid #dee2e6;${requireApproval && flight.approved === null ? ' background: #fffbeb;' : ''}">
           <td data-label="Päivä" style="padding: 10px;">${formatDate(flight.date)}</td>
           <td data-label="Paikka" style="padding: 10px;">${escapeHtml(flight.site_name || '-')}</td>
           <td data-label="Tyyppi" style="padding: 10px;"><span style="background: ${typeBg}; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">${typeLabel}</span>${approvalTag}</td>
           <td data-label="Lentoja" style="padding: 10px;">${flight.flight_count}</td>
           <td data-label="Harjoitukset" style="padding: 10px;">${escapeHtml(flight.exercises || '-')}</td>
           <td data-label="Muistiinpanot" style="padding: 10px;">${escapeHtml(flight.notes || '-')}</td>
-          ${isInstructor ? `
-            <td data-label="Toiminnot" style="padding: 10px;">
-              <button class="btn btn-small btn-danger" onclick="deleteFlightConfirm(${flight.id})">Poista</button>
-            </td>
-          ` : ''}
+          ${requireApproval ? `<td data-label="Tila" style="padding: 10px;">${statusBadge}</td>` : ''}
+          ${isInstructor ? `<td data-label="Toiminnot" style="padding: 10px;">${actionBtns}</td>` : ''}
         </tr>
       `;
     });
   } else {
-    html += `<tr><td colspan="${isInstructor ? 7 : 6}" style="text-align: center; padding: 20px;">Ei lentoja</td></tr>`;
+    const colCount = 6 + (requireApproval ? 1 : 0) + (isInstructor ? 1 : 0);
+    html += `<tr><td colspan="${colCount}" style="text-align: center; padding: 20px;">Ei lentoja</td></tr>`;
   }
 
   html += '</tbody></table></div>';
   $('flights-content').innerHTML = html;
+}
+
+async function approveFlight(flightId, studentId) {
+  const result = await api('POST', `/api/flights/${flightId}/approve`);
+  if (result) {
+    showSuccess('Lento hyväksytty');
+    loadFlightsTab(studentId);
+  }
+}
+
+async function rejectFlight(flightId, studentId) {
+  const result = await api('POST', `/api/flights/${flightId}/reject`);
+  if (result) {
+    showSuccess('Lento hylätty');
+    loadFlightsTab(studentId);
+  }
 }
 
 async function printFlightLogbook(studentId) {
@@ -1754,13 +1810,14 @@ async function renderInstructors() {
 
   const instructors = data.instructors || [];
   const isAdmin = currentUser && currentUser.role === 'admin';
+  const isChief = currentUser && (currentUser.is_chief || currentUser.role === 'admin');
   const colCount = isAdmin ? 5 : 4;
 
   let html = `
     <div style="padding: 20px;">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
         <h1>Ohjaajat</h1>
-        <button class="btn btn-primary" onclick="showAddInstructorModal()">+ Lisää ohjaaja</button>
+        ${isChief ? '<button class="btn btn-primary" onclick="showAddInstructorModal()">+ Lisää ohjaaja</button>' : ''}
       </div>
 
       <div style="overflow-x: auto;">
@@ -1779,14 +1836,15 @@ async function renderInstructors() {
 
   instructors.forEach(instructor => {
     const isSelf = currentUser && currentUser.id === instructor.id;
+    const chiefBadge = instructor.is_chief ? ' <span style="background: #d4a017; color: #fff; padding: 2px 6px; border-radius: 4px; font-size: 0.8em;">Koulutuspäällikkö</span>' : '';
     html += `
       <tr style="border-bottom: 1px solid #dee2e6;">
-        <td style="padding: 10px;">${escapeHtml(instructor.name)}</td>
+        <td style="padding: 10px;">${escapeHtml(instructor.name)}${chiefBadge}</td>
         ${isAdmin ? `<td style="padding: 10px;"><span style="background: #E8F0FE; color: #1a56db; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">${escapeHtml(instructor.club_name || 'Ei kerhoa')}</span></td>` : ''}
         <td style="padding: 10px;">${escapeHtml(instructor.email)}</td>
         <td style="padding: 10px;">${escapeHtml(instructor.phone || '-')}</td>
         <td style="padding: 10px;">
-          ${isSelf ? '<span style="background: #2E6DA4; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">Sinä</span>' : `<button class="btn btn-small btn-danger" onclick="deleteInstructorConfirm(${instructor.id})">Poista</button>`}
+          ${isSelf ? '<span style="background: #2E6DA4; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">Sinä</span>' : (isChief ? `<button class="btn btn-small btn-danger" onclick="deleteInstructorConfirm(${instructor.id})">Poista</button>` : '')}
         </td>
       </tr>
     `;
@@ -1888,6 +1946,55 @@ async function deleteInstructor(instructorId) {
   if (result) {
     showSuccess('Ohjaaja poistettu');
     renderInstructors();
+  }
+}
+
+// ============================================================================
+// SETTINGS VIEW (Chief instructor / Admin)
+// ============================================================================
+
+async function renderSettings() {
+  const mainContent = $('main-content');
+  mainContent.innerHTML = '<p style="text-align: center; padding: 40px;">Ladataan...</p>';
+
+  const data = await api('GET', '/api/club-settings');
+  if (!data) return;
+
+  const settings = data.settings || {};
+
+  let html = `
+    <div style="padding: 20px; max-width: 600px;">
+      <h1>Kerhon asetukset</h1>
+      <p style="color: #666; margin-bottom: 24px;">Nämä asetukset vaikuttavat koko kerhon toimintaan. Vain koulutuspäällikkö voi muuttaa asetuksia.</p>
+
+      <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px; margin-bottom: 16px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 16px;">
+          <div>
+            <strong>Lentojen hyväksyntä</strong>
+            <p style="color: #666; margin: 4px 0 0 0; font-size: 0.9em;">
+              Ohjaajan täytyy hyväksyä oppilaiden kirjaamat lennot ennen kuin ne näkyvät edistymisessä.
+            </p>
+          </div>
+          <label style="position: relative; display: inline-block; width: 50px; height: 28px; flex-shrink: 0;">
+            <input type="checkbox" id="setting-flight-approval" ${settings.require_flight_approval ? 'checked' : ''}
+              onchange="saveClubSetting('require_flight_approval', this.checked ? 1 : 0)"
+              style="opacity: 0; width: 0; height: 0;">
+            <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: ${settings.require_flight_approval ? '#28a745' : '#ccc'}; border-radius: 28px; transition: 0.3s;"></span>
+            <span style="position: absolute; content: ''; height: 22px; width: 22px; left: ${settings.require_flight_approval ? '25px' : '3px'}; bottom: 3px; background: white; border-radius: 50%; transition: 0.3s;"></span>
+          </label>
+        </div>
+      </div>
+    </div>
+  `;
+
+  mainContent.innerHTML = html;
+}
+
+async function saveClubSetting(key, value) {
+  const result = await api('PUT', '/api/club-settings', { [key]: value });
+  if (result) {
+    showSuccess('Asetus tallennettu');
+    renderSettings();
   }
 }
 

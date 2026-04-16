@@ -276,6 +276,22 @@ const requireAdmin = async (req, res, next) => {
   next();
 };
 
+const requireChiefInstructor = async (req, res, next) => {
+  if (!req.session.userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  const db = getDb();
+  const user = await db.prepare('SELECT role, is_chief FROM users WHERE id = ?').get(req.session.userId);
+  if (!user || user.role === 'student') {
+    return res.status(403).json({ error: 'Instructor access required' });
+  }
+  if (user.role === 'admin') return next();
+  if (!user.is_chief) {
+    return res.status(403).json({ error: 'Chief instructor access required' });
+  }
+  next();
+};
+
 // Helper: Get user's club_id
 const getUserClubId = async (req) => {
   const db = getDb();
@@ -286,7 +302,7 @@ const getUserClubId = async (req) => {
 // Helper: Get user object without password
 const getUserWithoutPassword = async (userId) => {
   const db = getDb();
-  return await db.prepare('SELECT id, username, email, name, role, phone, must_change_password FROM users WHERE id = ?').get(userId);
+  return await db.prepare('SELECT id, username, email, name, role, phone, must_change_password, is_chief FROM users WHERE id = ?').get(userId);
 };
 
 // Middleware: Sanitize request body strings to prevent XSS
@@ -493,32 +509,42 @@ app.post('/api/admin/reset-password', requireAuth, requireInstructor, async (req
 const getStudentStats = async (studentId) => {
   const db = getDb();
 
+  // Check if club requires flight approval
+  const student = await db.prepare('SELECT club_id FROM users WHERE id = ?').get(studentId);
+  let approvalFilter = '';
+  if (student && student.club_id) {
+    const cs = await db.prepare('SELECT require_flight_approval FROM club_settings WHERE club_id = ?').get(student.club_id);
+    if (cs && cs.require_flight_approval) {
+      approvalFilter = ' AND approved = 1';
+    }
+  }
+
   const lowFlights = await db.prepare(
-    'SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ? AND flight_type = ?'
+    `SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ? AND flight_type = ?${approvalFilter}`
   ).get(studentId, 'low');
 
   const highFlights = await db.prepare(
-    'SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ? AND flight_type = ?'
+    `SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ? AND flight_type = ?${approvalFilter}`
   ).get(studentId, 'high');
 
   const highDays = await db.prepare(
-    'SELECT COUNT(DISTINCT date) as count FROM flights WHERE student_id = ? AND flight_type = ?'
+    `SELECT COUNT(DISTINCT date) as count FROM flights WHERE student_id = ? AND flight_type = ?${approvalFilter}`
   ).get(studentId, 'high');
 
   const totalFlights = await db.prepare(
-    'SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ?'
+    `SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ?${approvalFilter}`
   ).get(studentId);
 
   const lastFlight = await db.prepare(
-    'SELECT date FROM flights WHERE student_id = ? ORDER BY date DESC LIMIT 1'
+    `SELECT date FROM flights WHERE student_id = ?${approvalFilter} ORDER BY date DESC LIMIT 1`
   ).get(studentId);
 
   const hasApproval = await db.prepare(
-    'SELECT COUNT(*) as count FROM flights WHERE student_id = ? AND is_approval_flight = 1'
+    `SELECT COUNT(*) as count FROM flights WHERE student_id = ? AND is_approval_flight = 1${approvalFilter}`
   ).get(studentId);
 
   const approvalFlight = await db.prepare(
-    'SELECT date FROM flights WHERE student_id = ? AND is_approval_flight = 1 ORDER BY date DESC LIMIT 1'
+    `SELECT date FROM flights WHERE student_id = ? AND is_approval_flight = 1${approvalFilter} ORDER BY date DESC LIMIT 1`
   ).get(studentId);
 
   // PP2 exam status
@@ -736,9 +762,15 @@ app.get('/api/students/:id/flights', requireAuth, async (req, res) => {
 
   const flights = await db.prepare(query).all(...params);
 
-  // Include student stats
+  // Include student stats and club approval setting
   const stats = await getStudentStats(id);
-  res.json({ student: stats, flights });
+  const studentRow = await db.prepare('SELECT club_id FROM users WHERE id = ?').get(id);
+  let requireFlightApproval = false;
+  if (studentRow && studentRow.club_id) {
+    const cs = await db.prepare('SELECT require_flight_approval FROM club_settings WHERE club_id = ?').get(studentRow.club_id);
+    if (cs) requireFlightApproval = !!cs.require_flight_approval;
+  }
+  res.json({ student: stats, flights, require_flight_approval: requireFlightApproval });
 });
 
 // POST /api/students/:id/flights
@@ -767,10 +799,18 @@ app.post('/api/students/:id/flights', requireAuth, async (req, res) => {
     return res.status(400).json({ error: 'Date, flight_count, and flight_type required' });
   }
 
+  // Auto-approve if added by instructor/admin; leave pending if student adds own flight and approval required
+  let approvedVal = null, approvedByVal = null, approvedAtVal = null;
+  if (isAdmin || isInstructor) {
+    approvedVal = 1;
+    approvedByVal = req.session.userId;
+    approvedAtVal = new Date().toISOString();
+  }
+
   const result = await db.prepare(`
-    INSERT INTO flights (student_id, date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight, added_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, date, flight_count, flight_type, site_id || null, weather || null, exercises || null, notes || null, is_approval_flight ? 1 : 0, req.session.userId);
+    INSERT INTO flights (student_id, date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight, added_by, approved, approved_by, approved_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, date, flight_count, flight_type, site_id || null, weather || null, exercises || null, notes || null, is_approval_flight ? 1 : 0, req.session.userId, approvedVal, approvedByVal, approvedAtVal);
 
   await logAction(req.session.userId, 'CREATE', 'flight', result.lastInsertRowid, { student_id: id, flight_type });
 
@@ -852,6 +892,34 @@ app.delete('/api/flights/:id', requireAuth, requireInstructor, async (req, res) 
 
   await logAction(req.session.userId, 'DELETE', 'flight', id, {});
 
+  res.json({ success: true });
+});
+
+// POST /api/flights/:id/approve
+app.post('/api/flights/:id/approve', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+  const flight = await db.prepare('SELECT * FROM flights WHERE id = ?').get(id);
+  if (!flight) return res.status(404).json({ error: 'Flight not found' });
+
+  await db.prepare('UPDATE flights SET approved = 1, approved_by = ?, approved_at = ? WHERE id = ?')
+    .run(req.session.userId, new Date().toISOString(), id);
+
+  await logAction(req.session.userId, 'APPROVE', 'flight', id, {});
+  res.json({ success: true });
+});
+
+// POST /api/flights/:id/reject
+app.post('/api/flights/:id/reject', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+  const flight = await db.prepare('SELECT * FROM flights WHERE id = ?').get(id);
+  if (!flight) return res.status(404).json({ error: 'Flight not found' });
+
+  await db.prepare('UPDATE flights SET approved = 0, approved_by = ?, approved_at = ? WHERE id = ?')
+    .run(req.session.userId, new Date().toISOString(), id);
+
+  await logAction(req.session.userId, 'REJECT', 'flight', id, {});
   res.json({ success: true });
 });
 
@@ -1674,7 +1742,7 @@ app.get('/api/instructors', requireAuth, requireInstructor, async (req, res) => 
   const db = getDb();
   const user = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
 
-  let query = `SELECT u.id, u.username, u.email, u.name, u.phone, u.club_id, c.name as club_name
+  let query = `SELECT u.id, u.username, u.email, u.name, u.phone, u.club_id, u.is_chief, c.name as club_name
     FROM users u LEFT JOIN clubs c ON u.club_id = c.id WHERE u.role = ?`;
   const params = ['instructor'];
 
@@ -1694,7 +1762,7 @@ app.get('/api/instructors', requireAuth, requireInstructor, async (req, res) => 
 });
 
 // POST /api/instructors (admin or instructor in same club)
-app.post('/api/instructors', requireAuth, requireInstructor, async (req, res) => {
+app.post('/api/instructors', requireAuth, requireChiefInstructor, async (req, res) => {
   const { name, email, phone, username, password, club_id } = req.body;
 
   if (!name || !email || !username || !password) {
@@ -1742,7 +1810,7 @@ app.post('/api/instructors', requireAuth, requireInstructor, async (req, res) =>
 });
 
 // DELETE /api/instructors/:id (admin or instructor in same club)
-app.delete('/api/instructors/:id', requireAuth, requireInstructor, async (req, res) => {
+app.delete('/api/instructors/:id', requireAuth, requireChiefInstructor, async (req, res) => {
   const { id } = req.params;
   const userId = req.session.userId;
 
@@ -1989,6 +2057,37 @@ app.get('/api/dashboard', requireAuth, requireInstructor, async (req, res) => {
     recent_events: events,
     inactive_warnings: inactiveWarnings
   });
+});
+
+// ============================================================================
+// CLUB SETTINGS ROUTES
+// ============================================================================
+
+app.get('/api/club-settings', requireAuth, requireChiefInstructor, async (req, res) => {
+  const db = getDb();
+  const user = await db.prepare('SELECT club_id FROM users WHERE id = ?').get(req.session.userId);
+  if (!user || !user.club_id) return res.status(400).json({ error: 'No club' });
+  let settings = await db.prepare('SELECT * FROM club_settings WHERE club_id = ?').get(user.club_id);
+  if (!settings) {
+    await db.prepare('INSERT INTO club_settings (club_id) VALUES (?)').run(user.club_id);
+    settings = { club_id: user.club_id, require_flight_approval: 0 };
+  }
+  res.json({ settings });
+});
+
+app.put('/api/club-settings', requireAuth, requireChiefInstructor, async (req, res) => {
+  const db = getDb();
+  const user = await db.prepare('SELECT club_id FROM users WHERE id = ?').get(req.session.userId);
+  if (!user || !user.club_id) return res.status(400).json({ error: 'No club' });
+
+  const { require_flight_approval } = req.body;
+  if (require_flight_approval !== undefined) {
+    await db.prepare('UPDATE club_settings SET require_flight_approval = ? WHERE club_id = ?').run(require_flight_approval ? 1 : 0, user.club_id);
+  }
+
+  await logAction(req.session.userId, 'UPDATE', 'club_settings', user.club_id, req.body);
+  const settings = await db.prepare('SELECT * FROM club_settings WHERE club_id = ?').get(user.club_id);
+  res.json({ settings });
 });
 
 // ============================================================================
@@ -2452,6 +2551,38 @@ initDb().then(async () => {
     await seedDatabase();
   } catch(e) {
     console.error('Auto-seed failed:', e.message);
+  }
+
+  // Migration: add is_chief column to users and club_settings table
+  try {
+    const db = getDb();
+    const pool = db.getPool();
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_chief INTEGER DEFAULT 0`);
+    await pool.query(`ALTER TABLE flights ADD COLUMN IF NOT EXISTS approved INTEGER DEFAULT NULL`);
+    await pool.query(`ALTER TABLE flights ADD COLUMN IF NOT EXISTS approved_by INTEGER DEFAULT NULL`);
+    await pool.query(`ALTER TABLE flights ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP DEFAULT NULL`);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS club_settings (
+        club_id INTEGER PRIMARY KEY REFERENCES clubs(id) ON DELETE CASCADE,
+        require_flight_approval INTEGER DEFAULT 0
+      )
+    `);
+    // Set first instructor per club as chief if no chief exists
+    const clubs = await db.prepare('SELECT id FROM clubs').all();
+    for (const club of clubs) {
+      const hasChief = await db.prepare('SELECT id FROM users WHERE club_id = ? AND role = ? AND is_chief = 1').get(club.id, 'instructor');
+      if (!hasChief) {
+        const firstInstructor = await db.prepare('SELECT id FROM users WHERE club_id = ? AND role = ? ORDER BY id ASC LIMIT 1').get(club.id, 'instructor');
+        if (firstInstructor) {
+          await db.prepare('UPDATE users SET is_chief = 1 WHERE id = ?').run(firstInstructor.id);
+          console.log(`Set chief instructor for club ${club.id}: user ${firstInstructor.id}`);
+        }
+      }
+    }
+    // Ensure every club has a row in club_settings
+    await pool.query(`INSERT INTO club_settings (club_id) SELECT id FROM clubs WHERE id NOT IN (SELECT club_id FROM club_settings)`);
+  } catch(e) {
+    console.error('Chief/settings migration failed:', e.message);
   }
 
   // Fix any double-encoded UTF-8 characters from previous seed data
