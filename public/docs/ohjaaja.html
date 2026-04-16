@@ -107,9 +107,13 @@
     <li><a href="#5-oppitunnit">5. Oppitunnit</a></li>
     <li><a href="#6-lentopaikat">6. Lentopaikat</a></li>
     <li><a href="#7-teoria">7. Teoria</a></li>
-    <li><a href="#8-kaytto-mobiilissa">8. Käyttö mobiilissa</a></li>
-    <li><a href="#9-vinkkeja">9. Vinkkejä</a></li>
-    <li><a href="#10-ongelmatilanteet">10. Ongelmatilanteet</a></li>
+    <li><a href="#8-ohjaajien-hallinta">8. Ohjaajien hallinta</a></li>
+    <li><a href="#9-kerhon-asetukset">9. Kerhon asetukset (koulutuspäällikkö)</a></li>
+    <li><a href="#10-lentojen-hyvaksynta">10. Lentojen hyväksyntä</a></li>
+    <li><a href="#11-lentopaivakira-tulostus">11. Lentopäiväkirjan tulostus</a></li>
+    <li><a href="#12-kaytto-mobiilissa">12. Käyttö mobiilissa</a></li>
+    <li><a href="#13-vinkkeja">13. Vinkkejä</a></li>
+    <li><a href="#14-ongelmatilanteet">14. Ongelmatilanteet</a></li>
   </ul>
 </nav>
 
@@ -168,7 +172,7 @@
 
 <h1 id="5-oppitunnit">5. Oppitunnit</h1>
 
-<p>Oppituntinäkymässä voit luoda uusia oppitunteja, lisätä niihin osallistuvia oppilaita ja merkitä käsiteltyjä teoria-aiheita. Oppitunnit näkyvät myös audit-lokissa.</p>
+<p>Oppituntinäkymässä voit luoda uusia oppitunteja, lisätä niihin osallistuvia oppilaita ja merkitä käsiteltyjä teoria-aiheita. Klikkaamalla oppitunnin riviä tai &quot;Näytä&quot;-painiketta näet oppitunnin tiedot: päivämäärän, käsitellyt aiheet otsikoineen ja paikalla olleet oppilaat. Oppitunnit näkyvät myös audit-lokissa.</p>
 
 <figure>
   <img src="img/instructor-05-oppitunnit.png" alt="Kuva 6. Oppitunnit-näkymä." style="max-width: 640px;">
@@ -193,7 +197,64 @@
   <figcaption>Kuva 8. Teoria-näkymä.</figcaption>
 </figure>
 
-<h1 id="8-kaytto-mobiilissa">8. Käyttö mobiilissa</h1>
+<h1 id="8-ohjaajien-hallinta">8. Ohjaajien hallinta</h1>
+
+<p>&quot;Ohjaajat&quot;-näkymässä näet kerhosi ohjaajat. Koulutuspäällikkö näkee lisäksi &quot;+ Lisää ohjaaja&quot; -painikkeen ja voi poistaa ohjaajia. Jokaisen kerhon ensimmäinen ohjaaja saa automaattisesti koulutuspäällikkö-roolin, joka näkyy kultaisena merkkinä nimen vieressä.</p>
+
+<h2>Koulutuspäällikön rooli</h2>
+
+<p>Koulutuspäällikkö on kerhon vastuuhenkilö, jolla on laajemmat oikeudet:</p>
+
+<ul>
+  <li>Ohjaajien lisääminen ja poistaminen</li>
+  <li>Kerhon asetusten muuttaminen (esim. lentojen hyväksyntä)</li>
+  <li>Kerhon tietojen ja logon muokkaaminen</li>
+</ul>
+
+<p>Kerhossa voi olla vain yksi koulutuspäällikkö kerrallaan. Koulutuspäällikkö voi siirtää roolinsa toiselle ohjaajalle painamalla &quot;Aseta koulutuspäälliköksi&quot; -painiketta toisen ohjaajan kohdalla. Siirto vaatii vahvistuksen, sillä se poistaa roolin sinulta itseltäsi. Myös sovelluksen pääkäyttäjä (admin) voi vaihtaa kerhon koulutuspäällikköä.</p>
+
+<h1 id="9-kerhon-asetukset">9. Kerhon asetukset (koulutuspäällikkö)</h1>
+
+<p>Koulutuspäällikölle näkyy sivuvalikossa &quot;Asetukset&quot;-linkki. Asetussivulla voi muokata:</p>
+
+<h2>Kerhon tiedot</h2>
+
+<ul>
+  <li><strong>Nimi ja kuvaus</strong> — näkyvät sovelluksessa ja tulosteissa</li>
+  <li><strong>Yhteystiedot</strong> — sähköposti, puhelin ja verkkosivu</li>
+  <li><strong>Logo</strong> — JPG- tai PNG-kuva, joka näkyy asetussivulla ja lentopäiväkirjan tulosteessa. Voit vaihtaa tai poistaa logon milloin tahansa.</li>
+</ul>
+
+<h2>Koulutusasetukset</h2>
+
+<ul>
+  <li><strong>Lentojen hyväksyntä</strong> — kun asetus on päällä, oppilaiden itse kirjaamat lennot vaativat ohjaajan hyväksynnän ennen kuin ne lasketaan edistymiseen. Ohjaajien kirjaamat lennot hyväksytään automaattisesti. Katso tarkemmin osio 10.</li>
+</ul>
+
+<h1 id="10-lentojen-hyvaksynta">10. Lentojen hyväksyntä</h1>
+
+<p>Jos kerhon koulutuspäällikkö on ottanut lentojen hyväksynnän käyttöön asetuksissa, oppilaiden itse kirjaamat lennot eivät näy edistymispalkeissa ennen ohjaajan hyväksyntää.</p>
+
+<h2>Miten hyväksyntä toimii?</h2>
+
+<ul>
+  <li>Kun oppilas lisää lennon itse, se saa &quot;Odottaa&quot;-tilan (keltainen merkki).</li>
+  <li>Kun ohjaaja tai admin lisää lennon, se hyväksytään automaattisesti.</li>
+  <li>Ohjaaja näkee lentolistan &quot;Tila&quot;-sarakkeessa kunkin lennon hyväksyntätilanteen.</li>
+  <li>Ohjaaja voi hyväksyä lennon (&quot;Hyväksy&quot;) tai hylätä sen (&quot;Hylkää&quot;).</li>
+  <li>Vain hyväksytyt lennot lasketaan edistymispalkkeihin (matalat, korkeat, tarkistuslento).</li>
+  <li>Odottavien lentojen lukumäärä näkyy keltaisessa ilmoituspalkissa oppilaan lennot-välilehdellä.</li>
+</ul>
+
+<p>Jos lentojen hyväksyntä ei ole käytössä, kaikki lennot lasketaan suoraan edistymiseen kuten ennenkin.</p>
+
+<h1 id="11-lentopaivakira-tulostus">11. Lentopäiväkirjan tulostus</h1>
+
+<p>Oppilaan lennot-välilehdellä on &quot;Tulosta lentopäiväkirja&quot; -painike (näkyy kun oppilaalla on lentoja). Painike avaa uuden selaimen välilehden, jossa on tulostusystävällinen sivu kaikista lennoista taulukkona. Sivun yläosassa näkyy kerhon logo (jos asetettu) ja kerhon nimi, oppilaan tiedot sekä yhteenveto lentojen määristä.</p>
+
+<p>Voit tulostaa sivun paperille tai tallentaa sen PDF-tiedostona selaimen &quot;Tallenna PDF:nä&quot; -toiminnolla (Ctrl+P → Tallenna PDF:nä).</p>
+
+<h1 id="12-kaytto-mobiilissa">12. Käyttö mobiilissa</h1>
 
 <p>Kun käytät sovellusta puhelimella, sivuvalikko piiloutuu ja vasempaan yläkulmaan ilmestyy hampurilaispainike (☰). Paina sitä avataksesi valikon. Oppilaat-näkymässä kortit muuttuvat pystysuuntaisiksi ja lentolista pinoutuu helposti luettaviksi korteiksi.</p>
 
@@ -207,16 +268,19 @@
   <figcaption>Kuva 10. Hampurilaispainikkeesta avautuva sivuvalikko.</figcaption>
 </figure>
 
-<h1 id="9-vinkkeja">9. Vinkkejä</h1>
+<h1 id="13-vinkkeja">13. Vinkkejä</h1>
 
 <ul>
   <li>Käytä &quot;Kesken&quot;-suodatinta oppilasnäkymässä nähdäksesi vain aktiiviset oppilaat.</li>
   <li>Oppilaan status &quot;Valmis&quot; vaatii suoritetun PP2-kokeen — jos et pääse tallentamaan, tarkista että PP2-koe on merkitty suoritetuksi.</li>
   <li>Tarkistuslennon ja PP2-kokeen suorituspäivät näkyvät oppilaan statuksen vieressä ja oppilaan detail-näkymässä.</li>
   <li>Liian monta epäonnistunutta kirjautumisyritystä lukitsee IP-osoitteen 15 minuutiksi — odota tai käytä toista verkkoa.</li>
+  <li>Koulutuspäällikön roolin siirto on peruuttamaton — uusi koulutuspäällikkö voi siirtää roolin takaisin tarvittaessa.</li>
+  <li>Lataa kerhon logo asetuksista — se näkyy automaattisesti myös lentopäiväkirjan tulosteissa.</li>
+  <li>Oppituntien tiedot avautuvat klikkaamalla riviä — sieltä näet käsitellyt aiheet ja paikalla olleet oppilaat.</li>
 </ul>
 
-<h1 id="10-ongelmatilanteet">10. Ongelmatilanteet</h1>
+<h1 id="14-ongelmatilanteet">14. Ongelmatilanteet</h1>
 
 <p>Jos kirjautuminen ei onnistu, varmista käyttäjänimen kirjoitusasu (ääkköset huomioiden). Jos sivu ei reagoi, päivitä selain (F5 / Ctrl+R). Pidempiaikaisissa ongelmissa ota yhteyttä kerhon pääkäyttäjään tai sovelluksen ylläpitoon.</p>
 
