@@ -21,13 +21,13 @@ Varjoliidon koulutussovellus lentokerhoille — oppilaiden koulutuksen seuranta,
 ## Repon rakenne
 
 ```
-server.js          # Pääbackend, ~2300 riviä — kaikki API-endpointit, seed, migraatiot
+server.js          # Pääbackend — kaikki API-endpointit, seed, migraatiot
 db.js              # Tietokantayhteys (pg Pool)
 mailer.js          # Sähköpostien lähetys
 audit.js           # Audit-lokin apufunktiot
 public/            # Frontend (HTML/CSS/JS)
 scripts/           # Ylläpitoskriptit
-data/              # Staattinen data
+data/              # Staattinen data, tiedostolataukset (data/uploads/)
 .env.example       # Ympäristömuuttujien esimerkki
 bg-login.jpg       # Kirjautumissivun taustakuva
 ```
@@ -51,16 +51,18 @@ Lokaalisti: kopioi `.env.example` → `.env` ja täytä arvot. Lokaali kehitys v
 
 Sovelluksessa on kolme roolia: `admin`, `instructor` (ohjaaja), `student` (oppilas).
 
+Ohjaajilla on lisäksi **koulutuspäällikkö**-rooli (`is_chief`): yksi per kerho, voi hallita ohjaajia ja kerhon asetuksia. Admin tai nykyinen koulutuspäällikkö voi siirtää roolin toiselle ohjaajalle. Ensimmäinen kerhoon lisätty ohjaaja saa roolin automaattisesti.
+
 Testiohjaajat (kaikki salasanat `Etunimi123!!`):
 
-| Käyttäjä | Salasana     | Rooli      | Kerho                     |
-|----------|--------------|------------|---------------------------|
-| admin    | admin123     | admin      | —                         |
-| Taavi    | Taavi123!!   | instructor | Hämeenkyrön Lentokerho    |
-| Marko    | Marko123!!   | instructor | Hämeenkyrön Lentokerho    |
-| Väiski   | Viski123!!   | instructor | FlyDaddy                  |
-| Jarno    | Jarno123!!   | instructor | Oulun Icaros Team         |
-| Juho     | Juho123!!    | instructor | Airiston Varjoliitäjät    |
+| Käyttäjä | Salasana     | Rooli      | Kerho                     | Koulutuspäällikkö |
+|----------|--------------|------------|---------------------------|-------------------|
+| admin    | admin123     | admin      | —                         | —                 |
+| Taavi    | Taavi123!!   | instructor | Hämeenkyrön Lentokerho    | kyllä (oletus)    |
+| Marko    | Marko123!!   | instructor | Hämeenkyrön Lentokerho    | ei                |
+| Väiski   | Viski123!!   | instructor | FlyDaddy                  | kyllä (oletus)    |
+| Jarno    | Jarno123!!   | instructor | Oulun Icaros Team         | kyllä (oletus)    |
+| Juho     | Juho123!!    | instructor | Airiston Varjoliitäjät    | kyllä (oletus)    |
 
 **Huom Väiski:** salasana on `Viski123!!` (ei Väiski) — historiallinen UTF-8-encoding-bug.
 **Sähköpostit:** kaikki ohjaajat käyttävät `@example.com`-osoitteita tietosuojan vuoksi.
@@ -79,9 +81,15 @@ Ei erillistä staging-ympäristöä — `main` = tuotanto. Tällä hetkellä sov
 `server.js`:n alussa käynnistyksessä ajetaan seuraavat (järjestyksessä):
 
 1. Seed-data luodaan jos tietokanta on tyhjä (käyttäjät, kerhot, testidata)
-2. Email-privacy-migraatio — ohjaajien emailit pakotetaan `@example.com`-osoitteiksi
-3. Väiski-password-migraatio — korjaa double-encoded salasana-hashin
-4. UTF-8-fix — korjaa double-encoded ääkköset `name`- ja `username`-kentissä PostgreSQL-komennolla `convert_from(convert_to(x, 'LATIN1'), 'UTF8')`. Early-return jos dataa ei ole jo vioittunut.
+2. Schema-migraatiot (ALTER TABLE IF NOT EXISTS):
+   - `users.is_chief` — koulutuspäällikkö-rooli
+   - `clubs.contact_email`, `contact_phone`, `website`, `logo_path` — kerhon tiedot
+   - `flights.approved`, `approved_by`, `approved_at` — lentojen hyväksyntä
+   - `club_settings`-taulu — kerhokohtaiset asetukset (`require_flight_approval`)
+   - Ensimmäinen ohjaaja per kerho asetetaan automaattisesti koulutuspäälliköksi
+3. Email-privacy-migraatio — ohjaajien emailit pakotetaan `@example.com`-osoitteiksi
+4. Väiski-password-migraatio — korjaa double-encoded salasana-hashin
+5. UTF-8-fix — korjaa double-encoded ääkköset `name`- ja `username`-kentissä PostgreSQL-komennolla `convert_from(convert_to(x, 'LATIN1'), 'UTF8')`. Early-return jos dataa ei ole jo vioittunut.
 
 ## Tunnetut yksityiskohdat
 
@@ -96,6 +104,18 @@ Vanhasta SQLite-vaiheesta periytyi double-encoded merkkejä tietokantaan (esim. 
 
 ### Railway-deploy
 Kontin uudelleenkäynnistys ei hävitä dataa — PostgreSQL on managed-palveluna erikseen. Koodin deploy ei kosketa dataa.
+
+### Cache busting
+`index.html` servoidaan Express-reitin kautta, joka injektoi `?v=<timestamp>` -queryn `app.js`- ja `style.css`-tageihin palvelimen käynnistyshetkellä. Jokainen deploy invalidoi selaimen välimuistin automaattisesti.
+
+### Koulutuspäällikkö (is_chief)
+Yksi per kerho. Oikeudet: ohjaajien lisäys/poisto, kerhon asetukset (lentojen hyväksyntä, kerhon tiedot/logo). Admin tai nykyinen koulutuspäällikkö voi siirtää roolin toiselle ohjaajalle (`PUT /api/instructors/:id/set-chief`). Ensimmäinen kerhoon lisätty ohjaaja saa roolin automaattisesti.
+
+### Lentojen hyväksyntä
+Kerhokohtainen asetus (`club_settings.require_flight_approval`). Kun päällä: ohjaajan lisäämät lennot hyväksytään automaattisesti, oppilaan itse lisäämät jäävät tilaan `approved = NULL` (odottaa). Vain hyväksytyt lennot (`approved = 1`) lasketaan edistymistilastoissa (`getStudentStats`). Ohjaaja hyväksyy/hylkää lennon UI:sta.
+
+### Kerhon tiedot ja logo
+Koulutuspäällikkö voi muokata kerhon nimeä, kuvausta, yhteystietoja ja verkkosivua (`PUT /api/my-club`). Logo (JPG/PNG) tallennetaan `data/uploads/` -kansioon ja servoidaan `GET /api/clubs/:id/logo`. Logo näkyy asetussivulla ja lentopäiväkirjan PDF-tulosteessa.
 
 ## Konventiot
 
