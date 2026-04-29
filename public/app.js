@@ -95,7 +95,20 @@ async function api(method, url, body = null) {
   }
 }
 
+const LOGIN_BG_COUNT = 5;
+
+function setRandomLoginBackground() {
+  const last = parseInt(localStorage.getItem('loginBgIndex') || '0', 10);
+  let next;
+  do {
+    next = Math.floor(Math.random() * LOGIN_BG_COUNT) + 1;
+  } while (next === last && LOGIN_BG_COUNT > 1);
+  localStorage.setItem('loginBgIndex', String(next));
+  document.documentElement.style.setProperty('--login-bg-url', `url('/bg${next}.jpg')`);
+}
+
 function showLoginView() {
+  setRandomLoginBackground();
   $('login-view').style.display = 'block';
   $('app-view').style.display = 'none';
   $('loading-view').style.display = 'none';

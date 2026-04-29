@@ -1121,7 +1121,7 @@ summary::marker {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: url('/bg-login.jpg') center center / cover no-repeat,
+  background: var(--login-bg-url, url('/bg-login.jpg')) center center / cover no-repeat,
               linear-gradient(135deg, var(--color-dark-blue) 0%, var(--color-medium-blue) 100%);
   padding: var(--spacing-md);
   position: relative;
