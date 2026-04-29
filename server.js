@@ -2858,7 +2858,7 @@ initDb().then(async () => {
   }
 
   app.listen(PORT, () => {
-    console.log(`PilottiPolku app server running on http://localhost:${PORT}`);
+    console.log(`PilottiPolku app server running on http://localhost:${PORT} (pilottipolku.fi)`);
   });
 }).catch(err => {
   console.error('Failed to initialize database:', err);
