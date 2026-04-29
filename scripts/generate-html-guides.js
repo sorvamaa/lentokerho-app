@@ -21,7 +21,7 @@ const instructor = {
   blocks: [
     ['h1', 'Tervetuloa'],
     ['p', 'PilottiPolku on lentokerhon koulutusjärjestelmä, jossa ohjaaja voi seurata oppilaidensa edistymistä, kirjata lentoja, hallita oppitunteja ja merkitä teoria-aiheita suoritetuiksi. Tämä ohje kertoo, miten pääset alkuun ja mistä löydät tärkeimmät toiminnot.'],
-    ['p', 'Sovellus toimii selaimessa osoitteessa https://pilottipolku.up.railway.app. Kaikki näkymät ovat suomeksi ja mukautuvat myös puhelimen ruudulle.'],
+    ['p', 'Sovellus toimii selaimessa osoitteessa https://pilottipolku.fi. Kaikki näkymät ovat suomeksi ja mukautuvat myös puhelimen ruudulle.'],
 
     ['h1', '1. Kirjautuminen'],
     ['p', 'Avaa selain ja mene sovelluksen osoitteeseen. Kirjautumislomake kysyy käyttäjänimen ja salasanan, jotka saat kerhon pääkäyttäjältä.'],
@@ -79,7 +79,7 @@ const student = {
   blocks: [
     ['h1', 'Tervetuloa'],
     ['p', 'PilottiPolku on kerhosi koulutusjärjestelmä, jossa voit seurata omaa edistymistäsi: näet lentosi, teorian suoritukset ja etenemisesi kohti PP1- ja PP2-tasoja. Tämä ohje kertoo, miten pääset alkuun.'],
-    ['p', 'Sovellus toimii selaimessa osoitteessa https://pilottipolku.up.railway.app. Voit käyttää sitä tietokoneella, tabletilla tai puhelimella.'],
+    ['p', 'Sovellus toimii selaimessa osoitteessa https://pilottipolku.fi. Voit käyttää sitä tietokoneella, tabletilla tai puhelimella.'],
 
     ['h1', '1. Kirjautuminen'],
     ['p', 'Ohjaajasi antaa sinulle käyttäjänimen ja alkusalasanan. Kirjaudu sisään etusivulta. Jos unohdit salasanasi, käytä "Unohtuiko salasana?" -linkkiä — saat palautuslinkin sähköpostiisi.'],

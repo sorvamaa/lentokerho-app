@@ -4,7 +4,7 @@ Varjoliidon koulutussovellus lentokerhoille — oppilaiden koulutuksen seuranta,
 
 ## Tuotantoympäristö
 
-- **Sovellus:** https://pilottipolku.up.railway.app
+- **Sovellus:** https://pilottipolku.fi (myös https://www.pilottipolku.fi)
 - **Repo:** https://github.com/sorvamaa/lentokerho-app
 - **Hosting:** Railway (auto-deploy `main`-branchista, ~30–60s build)
 - **Tietokanta:** PostgreSQL (Railwayssa managed-palveluna)
@@ -72,7 +72,7 @@ Testiohjaajat (kaikki salasanat `Etunimi123!!`):
 1. Commit + push `main`-branchiin
 2. Railway buildaa ja deployaa automaattisesti
 3. Odota ~30–60 sekuntia
-4. Testaa https://pilottipolku.up.railway.app
+4. Testaa https://pilottipolku.fi
 
 Ei erillistä staging-ympäristöä — `main` = tuotanto. Tällä hetkellä sovellus on **testikäytössä** eikä sisällä oikeaa dataa.
 
