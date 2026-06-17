@@ -1155,8 +1155,11 @@ app.get('/api/students/:id/certificate.pdf', requireAuth, async (req, res) => {
   if (type === 'mova') {
     typeFilter = " AND f.flight_type = 'motor'";
     if (student.mova_started_at) {
+      // mova_started_at is a TIMESTAMP — comes back as a JS Date from pg. Normalize
+      // to YYYY-MM-DD so the comparison matches flights.date (TEXT, 'YYYY-MM-DD').
+      const startDate = new Date(student.mova_started_at).toISOString().slice(0, 10);
       typeFilter += ' AND f.date >= ?';
-      flightParams.push(String(student.mova_started_at).slice(0, 10));
+      flightParams.push(startDate);
     }
   }
 
