@@ -605,24 +605,30 @@ app.post('/api/admin/reset-password', requireAuth, requireInstructor, async (req
 const GRAD_LOW_FLIGHTS_REQUIRED = 5;
 const GRAD_HIGH_FLIGHTS_REQUIRED = 40;
 const GRAD_HIGH_DAYS_REQUIRED = 7;
+// Graduation requirements for MOVA (in addition to PP2)
+const GRAD_MOTOR_FLIGHTS_REQUIRED = 7;
 
-// Helper: check whether a student meets all graduation requirements
+// Helper: check whether a student meets PP2 graduation requirements.
+// Motor flights count toward both the high-flight count AND the high-day count
+// (a moottorilennon päivä on myös korkea lentopäivä).
 const checkGraduationReadiness = async (studentId) => {
   const db = getDb();
   const stats = await getStudentStats(studentId);
-  const totalRow = await db.prepare('SELECT COUNT(*) AS c FROM theory_topics_def').get();
+  const totalRow = await db.prepare("SELECT COUNT(*) AS c FROM theory_topics_def td JOIN theory_sections ts ON ts.id = td.section_id WHERE ts.level IN ('pp1','pp2')").get();
   const totalTopics = parseInt(totalRow.c);
   const completedTopics = stats.theory_pp1 + stats.theory_pp2;
+  const highOrMotor = stats.high_flights + stats.motor_flights;
+  const highOrMotorDays = stats.high_or_motor_days;
 
   const missing = [];
   if (stats.low_flights < GRAD_LOW_FLIGHTS_REQUIRED) {
     missing.push(`${GRAD_LOW_FLIGHTS_REQUIRED - stats.low_flights} matalaa lentoa`);
   }
-  if (stats.high_flights < GRAD_HIGH_FLIGHTS_REQUIRED) {
-    missing.push(`${GRAD_HIGH_FLIGHTS_REQUIRED - stats.high_flights} korkeaa lentoa`);
+  if (highOrMotor < GRAD_HIGH_FLIGHTS_REQUIRED) {
+    missing.push(`${GRAD_HIGH_FLIGHTS_REQUIRED - highOrMotor} korkeaa lentoa`);
   }
-  if (stats.high_days < GRAD_HIGH_DAYS_REQUIRED) {
-    missing.push(`${GRAD_HIGH_DAYS_REQUIRED - stats.high_days} korkeaa lentopäivää`);
+  if (highOrMotorDays < GRAD_HIGH_DAYS_REQUIRED) {
+    missing.push(`${GRAD_HIGH_DAYS_REQUIRED - highOrMotorDays} korkeaa lentopäivää`);
   }
   if (!stats.pp2_exam_passed) {
     missing.push('PP2-koe');
@@ -637,13 +643,50 @@ const checkGraduationReadiness = async (studentId) => {
     progress: {
       low_flights: stats.low_flights,
       low_flights_required: GRAD_LOW_FLIGHTS_REQUIRED,
-      high_flights: stats.high_flights,
+      high_flights: highOrMotor,
       high_flights_required: GRAD_HIGH_FLIGHTS_REQUIRED,
-      high_days: stats.high_days,
+      high_days: highOrMotorDays,
       high_days_required: GRAD_HIGH_DAYS_REQUIRED,
       pp2_exam_passed: !!stats.pp2_exam_passed,
       theory_completed: completedTopics,
       theory_total: totalTopics
+    }
+  };
+};
+
+// Helper: check whether a student meets MOVA graduation requirements.
+// PP2 must be completed first (status = 'completed').
+const checkMovaReadiness = async (studentId) => {
+  const db = getDb();
+  const stats = await getStudentStats(studentId);
+  const student = await db.prepare('SELECT status FROM users WHERE id = ?').get(studentId);
+  const totalRow = await db.prepare("SELECT COUNT(*) AS c FROM theory_topics_def td JOIN theory_sections ts ON ts.id = td.section_id WHERE ts.level = 'mova'").get();
+  const totalMovaTopics = parseInt(totalRow.c);
+
+  const missing = [];
+  if (!student || student.status !== 'completed') {
+    missing.push('PP2-peruskoulutus valmistunut');
+  }
+  if (stats.motor_flights < GRAD_MOTOR_FLIGHTS_REQUIRED) {
+    missing.push(`${GRAD_MOTOR_FLIGHTS_REQUIRED - stats.motor_flights} moottorilentoa`);
+  }
+  if (!stats.mova_exam_passed) {
+    missing.push('MOVA-koe');
+  }
+  if (stats.theory_mova < totalMovaTopics) {
+    missing.push(`${totalMovaTopics - stats.theory_mova} MOVA-teoria-aihetta`);
+  }
+
+  return {
+    ready: missing.length === 0,
+    missing,
+    progress: {
+      motor_flights: stats.motor_flights,
+      motor_flights_required: GRAD_MOTOR_FLIGHTS_REQUIRED,
+      mova_exam_passed: !!stats.mova_exam_passed,
+      theory_mova_completed: stats.theory_mova,
+      theory_mova_total: totalMovaTopics,
+      pp2_completed: student && student.status === 'completed'
     }
   };
 };
@@ -670,9 +713,21 @@ const getStudentStats = async (studentId) => {
     `SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ? AND flight_type = ?${approvalFilter}`
   ).get(studentId, 'high');
 
+  const motorFlights = await db.prepare(
+    `SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ? AND flight_type = ?${approvalFilter}`
+  ).get(studentId, 'motor');
+
   const highDays = await db.prepare(
     `SELECT COUNT(DISTINCT date) as count FROM flights WHERE student_id = ? AND flight_type = ?${approvalFilter}`
   ).get(studentId, 'high');
+
+  const motorDays = await db.prepare(
+    `SELECT COUNT(DISTINCT date) as count FROM flights WHERE student_id = ? AND flight_type = ?${approvalFilter}`
+  ).get(studentId, 'motor');
+
+  const highOrMotorDays = await db.prepare(
+    `SELECT COUNT(DISTINCT date) as count FROM flights WHERE student_id = ? AND flight_type IN ('high','motor')${approvalFilter}`
+  ).get(studentId);
 
   const totalFlights = await db.prepare(
     `SELECT COALESCE(SUM(flight_count), 0) as count FROM flights WHERE student_id = ?${approvalFilter}`
@@ -690,9 +745,9 @@ const getStudentStats = async (studentId) => {
     `SELECT date FROM flights WHERE student_id = ? AND is_approval_flight = 1${approvalFilter} ORDER BY date DESC LIMIT 1`
   ).get(studentId);
 
-  // PP2 exam status
-  const pp2Exam = await db.prepare(
-    'SELECT pp2_exam_passed, pp2_exam_date FROM users WHERE id = ?'
+  // PP2 + MOVA exam status
+  const examRow = await db.prepare(
+    'SELECT pp2_exam_passed, pp2_exam_date, mova_status, mova_exam_passed, mova_exam_date, mova_graduated_at FROM users WHERE id = ?'
   ).get(studentId);
 
   // Theory counts
@@ -704,18 +759,30 @@ const getStudentStats = async (studentId) => {
     "SELECT COUNT(*) as count FROM theory_completions WHERE student_id = ? AND topic_key LIKE 'pp2_%'"
   ).get(studentId);
 
+  const theoryMova = await db.prepare(
+    "SELECT COUNT(*) as count FROM theory_completions WHERE student_id = ? AND topic_key LIKE 'mova_%'"
+  ).get(studentId);
+
   return {
     low_flights: parseInt(lowFlights.count),
     high_flights: parseInt(highFlights.count),
+    motor_flights: parseInt(motorFlights.count),
     high_days: parseInt(highDays.count),
+    motor_days: parseInt(motorDays.count),
+    high_or_motor_days: parseInt(highOrMotorDays.count),
     total_flights: parseInt(totalFlights.count),
     last_flight_date: lastFlight ? lastFlight.date : null,
     has_approval: parseInt(hasApproval.count) > 0,
     approval_flight_date: approvalFlight ? approvalFlight.date : null,
-    pp2_exam_passed: pp2Exam ? pp2Exam.pp2_exam_passed : 0,
-    pp2_exam_date: pp2Exam ? pp2Exam.pp2_exam_date : null,
+    pp2_exam_passed: examRow ? examRow.pp2_exam_passed : 0,
+    pp2_exam_date: examRow ? examRow.pp2_exam_date : null,
+    mova_status: examRow ? examRow.mova_status : null,
+    mova_exam_passed: examRow ? examRow.mova_exam_passed : 0,
+    mova_exam_date: examRow ? examRow.mova_exam_date : null,
+    mova_graduated_at: examRow ? examRow.mova_graduated_at : null,
     theory_pp1: parseInt(theoryPp1.count),
-    theory_pp2: parseInt(theoryPp2.count)
+    theory_pp2: parseInt(theoryPp2.count),
+    theory_mova: parseInt(theoryMova.count)
   };
 };
 
@@ -802,7 +869,7 @@ app.get('/api/students/:id', requireAuth, async (req, res) => {
 
   // Never return password_hash — use explicit column list
   const student = await db.prepare(
-    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, pp2_exam_date, course_started, student_notes, graduated_at, created_at FROM users WHERE id = ? AND role = ?'
+    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, pp2_exam_date, mova_status, mova_exam_passed, mova_exam_date, mova_graduated_at, course_started, student_notes, graduated_at, created_at FROM users WHERE id = ? AND role = ?'
   ).get(id, 'student');
 
   if (!student) {
@@ -816,7 +883,11 @@ app.get('/api/students/:id', requireAuth, async (req, res) => {
 // PUT /api/students/:id
 app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) => {
   const { id } = req.params;
-  const { name, email, phone, status, pp2_exam_passed, pp2_exam_date, course_started, student_notes } = req.body;
+  const {
+    name, email, phone, status, pp2_exam_passed, pp2_exam_date,
+    mova_status, mova_exam_passed, mova_exam_date,
+    course_started, student_notes
+  } = req.body;
 
   const db = getDb();
   const student = await db.prepare('SELECT * FROM users WHERE id = ? AND role = ?').get(id, 'student');
@@ -825,7 +896,7 @@ app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) =>
     return res.status(404).json({ error: 'Student not found' });
   }
 
-  // Validate graduation: set status to 'completed' only when all requirements met
+  // Validate PP2 graduation: set status to 'completed' only when all requirements met
   if (status === 'completed' && student.status !== 'completed') {
     const readiness = await checkGraduationReadiness(id);
     if (!readiness.ready) {
@@ -835,6 +906,23 @@ app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) =>
         progress: readiness.progress
       });
     }
+  }
+
+  // Validate MOVA graduation: set mova_status to 'completed' only when all requirements met
+  if (mova_status === 'completed' && student.mova_status !== 'completed') {
+    const readiness = await checkMovaReadiness(id);
+    if (!readiness.ready) {
+      return res.status(400).json({
+        error: 'Oppilas ei vielä täytä MOVA-valmistumisen ehtoja.',
+        missing: readiness.missing,
+        progress: readiness.progress
+      });
+    }
+  }
+
+  // Prevent cancelling MOVA after it has been completed
+  if (mova_status === null && student.mova_status === 'completed') {
+    return res.status(400).json({ error: 'Valmistunutta MOVA-koulutusta ei voi peruuttaa tästä.' });
   }
 
   const updates = [];
@@ -854,6 +942,16 @@ app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) =>
   }
   if (pp2_exam_passed !== undefined) { updates.push('pp2_exam_passed = ?'); values.push(pp2_exam_passed ? 1 : 0); }
   if (pp2_exam_date !== undefined) { updates.push('pp2_exam_date = ?'); values.push(pp2_exam_date || null); }
+  if (mova_status !== undefined) {
+    updates.push('mova_status = ?'); values.push(mova_status);
+    if (mova_status === 'completed' && !student.mova_graduated_at) {
+      updates.push('mova_graduated_at = CURRENT_TIMESTAMP');
+    } else if (mova_status !== 'completed' && student.mova_graduated_at) {
+      updates.push('mova_graduated_at = NULL');
+    }
+  }
+  if (mova_exam_passed !== undefined) { updates.push('mova_exam_passed = ?'); values.push(mova_exam_passed ? 1 : 0); }
+  if (mova_exam_date !== undefined) { updates.push('mova_exam_date = ?'); values.push(mova_exam_date || null); }
   if (course_started !== undefined) { updates.push('course_started = ?'); values.push(course_started); }
   if (student_notes !== undefined) { updates.push('student_notes = ?'); values.push(student_notes); }
 
@@ -907,7 +1005,58 @@ app.get('/api/students/:id/graduation-readiness', requireAuth, async (req, res) 
   res.json(readiness);
 });
 
-// GET /api/students/:id/certificate.pdf
+// GET /api/students/:id/mova-readiness
+// Returns whether student meets MOVA graduation criteria
+app.get('/api/students/:id/mova-readiness', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const requestingUser = await db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+  if (requestingUser.role === 'student' && req.session.userId !== parseInt(id)) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const student = await db.prepare('SELECT id FROM users WHERE id = ? AND role = ?').get(id, 'student');
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+
+  const readiness = await checkMovaReadiness(id);
+  res.json(readiness);
+});
+
+// POST /api/students/:id/mova/start
+// Mark MOVA training as started (mova_status = 'ongoing')
+app.post('/api/students/:id/mova/start', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+  const student = await db.prepare('SELECT id, mova_status FROM users WHERE id = ? AND role = ?').get(id, 'student');
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+  if (student.mova_status !== null && student.mova_status !== undefined) {
+    return res.status(400).json({ error: 'MOVA-koulutus on jo aloitettu tai valmistunut.' });
+  }
+  await db.prepare("UPDATE users SET mova_status = 'ongoing', mova_started_at = CURRENT_TIMESTAMP WHERE id = ?").run(id);
+  await logAction(req.session.userId, 'UPDATE', 'student', id, { mova_status: 'ongoing' });
+  res.json({ success: true, mova_status: 'ongoing' });
+});
+
+// POST /api/students/:id/mova/cancel
+// Cancel ongoing MOVA training (mova_status -> NULL). Only allowed if not completed.
+app.post('/api/students/:id/mova/cancel', requireAuth, requireInstructor, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+  const student = await db.prepare('SELECT id, mova_status FROM users WHERE id = ? AND role = ?').get(id, 'student');
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+  if (student.mova_status === 'completed') {
+    return res.status(400).json({ error: 'Valmistunutta MOVA-koulutusta ei voi peruuttaa.' });
+  }
+  if (student.mova_status === null || student.mova_status === undefined) {
+    return res.status(400).json({ error: 'MOVA-koulutusta ei ole aloitettu.' });
+  }
+  await db.prepare('UPDATE users SET mova_status = NULL WHERE id = ?').run(id);
+  await logAction(req.session.userId, 'UPDATE', 'student', id, { mova_status: null });
+  res.json({ success: true, mova_status: null });
+});
+
+// GET /api/students/:id/certificate.pdf?type=basic|mova|combined
 // Generates graduation certificate PDF (cover + theory + flights + attachments merged)
 app.get('/api/students/:id/certificate.pdf', requireAuth, async (req, res) => {
   const { id } = req.params;
@@ -919,12 +1068,39 @@ app.get('/api/students/:id/certificate.pdf', requireAuth, async (req, res) => {
   }
 
   const student = await db.prepare(
-    'SELECT id, username, name, email, phone, club_id, status, pp2_exam_passed, pp2_exam_date, course_started, graduated_at FROM users WHERE id = ? AND role = ?'
+    'SELECT id, username, name, email, phone, club_id, status, pp2_exam_passed, pp2_exam_date, mova_status, mova_started_at, mova_exam_passed, mova_exam_date, mova_graduated_at, course_started, graduated_at FROM users WHERE id = ? AND role = ?'
   ).get(id, 'student');
   if (!student) return res.status(404).json({ error: 'Student not found' });
 
-  if (student.status !== 'completed') {
-    return res.status(400).json({ error: 'Kurssitodistus voidaan ladata vasta kun oppilas on merkitty valmiiksi.' });
+  // Determine certificate type. Default: combined if both completed close together, basic if only PP2, mova if only MOVA.
+  const basicDone = student.status === 'completed';
+  const movaDone = student.mova_status === 'completed';
+  let type = (req.query.type || '').toLowerCase();
+  if (!['basic', 'mova', 'combined'].includes(type)) {
+    if (basicDone && movaDone) {
+      // Default to combined if PP2 and MOVA were completed within 30 days of each other
+      const basicAt = student.graduated_at ? new Date(student.graduated_at).getTime() : 0;
+      const movaAt = student.mova_graduated_at ? new Date(student.mova_graduated_at).getTime() : 0;
+      const closeTogether = basicAt && movaAt && Math.abs(basicAt - movaAt) <= 30 * 24 * 60 * 60 * 1000;
+      type = closeTogether ? 'combined' : 'mova';
+    } else if (basicDone) {
+      type = 'basic';
+    } else if (movaDone) {
+      type = 'mova';
+    } else {
+      return res.status(400).json({ error: 'Kurssitodistus voidaan ladata vasta kun oppilas on merkitty valmiiksi.' });
+    }
+  }
+
+  // Validate prerequisites for the chosen type
+  if (type === 'basic' && !basicDone) {
+    return res.status(400).json({ error: 'PP2-todistus vaatii että peruskurssi on merkitty valmiiksi.' });
+  }
+  if (type === 'mova' && !movaDone) {
+    return res.status(400).json({ error: 'MOVA-todistus vaatii että MOVA-koulutus on merkitty valmiiksi.' });
+  }
+  if (type === 'combined' && !(basicDone && movaDone)) {
+    return res.status(400).json({ error: 'Yhdistetty todistus vaatii että sekä PP2 että MOVA on merkitty valmiiksi.' });
   }
 
   // Gather all data needed for the certificate
@@ -945,12 +1121,23 @@ app.get('/api/students/:id/certificate.pdf', requireAuth, async (req, res) => {
     if (cs && cs.require_flight_approval) approvalFilter = ' AND f.approved = 1';
   }
 
+  // For MOVA-only cert: include only motor flights performed after MOVA training started
+  let typeFilter = '';
+  const flightParams = [student.id];
+  if (type === 'mova') {
+    typeFilter = " AND f.flight_type = 'motor'";
+    if (student.mova_started_at) {
+      typeFilter += ' AND f.date >= ?';
+      flightParams.push(String(student.mova_started_at).slice(0, 10));
+    }
+  }
+
   const flights = await db.prepare(
     `SELECT f.id, f.date, f.flight_count, f.flight_type, f.notes, f.is_approval_flight, s.name AS site_name
      FROM flights f LEFT JOIN sites s ON s.id = f.site_id
-     WHERE f.student_id = ?${approvalFilter}
+     WHERE f.student_id = ?${approvalFilter}${typeFilter}
      ORDER BY f.date ASC, f.id ASC`
-  ).all(student.id);
+  ).all(...flightParams);
 
   // Instructors who have added flights or theory completions for this student
   const instructorIds = new Set();
@@ -985,10 +1172,15 @@ app.get('/api/students/:id/certificate.pdf', requireAuth, async (req, res) => {
      ORDER BY ts.level, ts.sort_order, td.sort_order`
   ).all(student.id);
 
-  const theoryBySection = { pp1: [], pp2: [] };
+  // Filter theory levels by certificate type
+  const allowedLevels = type === 'mova' ? ['mova']
+    : type === 'basic' ? ['pp1', 'pp2']
+    : ['pp1', 'pp2', 'mova']; // combined includes all
+  const theoryBySection = { pp1: [], pp2: [], mova: [] };
   let theoryTotalMinutes = 0;
   const sectionMap = {};
   for (const c of completions) {
+    if (!allowedLevels.includes(c.level)) continue;
     theoryTotalMinutes += parseInt(c.duration_minutes || 0);
     const mapKey = `${c.level}::${c.section_key}`;
     if (!sectionMap[mapKey]) {
@@ -1014,6 +1206,7 @@ app.get('/api/students/:id/certificate.pdf', requireAuth, async (req, res) => {
   try {
     const { generateCertificate } = require('./cert-generator');
     const pdfBuffer = await generateCertificate({
+      type,
       student,
       club,
       stats,
@@ -1027,11 +1220,12 @@ app.get('/api/students/:id/certificate.pdf', requireAuth, async (req, res) => {
       logoBuffer
     });
 
-    await logAction(req.session.userId, 'READ', 'certificate', student.id, { filename_size: pdfBuffer.length });
+    await logAction(req.session.userId, 'READ', 'certificate', student.id, { type, filename_size: pdfBuffer.length });
 
     const safeName = (student.name || 'oppilas').replace(/[^A-Za-z0-9_\-]+/g, '_');
+    const typeSuffix = type === 'mova' ? 'MOVA' : type === 'combined' ? 'PP2-MOVA' : 'PP2';
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="Kurssitodistus_${safeName}.pdf"`);
+    res.setHeader('Content-Disposition', `attachment; filename="Kurssitodistus_${typeSuffix}_${safeName}.pdf"`);
     res.send(pdfBuffer);
   } catch (e) {
     console.error('Certificate generation failed:', e);
@@ -3021,6 +3215,7 @@ initDb().then(async () => {
     const pool = db.getPool();
     // users: MOVA progress fields
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_status TEXT DEFAULT NULL`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_started_at TIMESTAMP DEFAULT NULL`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_exam_passed INTEGER DEFAULT 0`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_exam_date TEXT DEFAULT NULL`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_graduated_at TIMESTAMP DEFAULT NULL`);

@@ -145,6 +145,7 @@ async function migrate(w) {
       pp2_exam_passed INTEGER DEFAULT 0,
       pp2_exam_date  TEXT    DEFAULT NULL,
       mova_status    TEXT    DEFAULT NULL,
+      mova_started_at TIMESTAMP DEFAULT NULL,
       mova_exam_passed INTEGER DEFAULT 0,
       mova_exam_date TEXT    DEFAULT NULL,
       mova_graduated_at TIMESTAMP DEFAULT NULL,
