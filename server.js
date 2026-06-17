@@ -630,6 +630,9 @@ const checkGraduationReadiness = async (studentId) => {
   if (highOrMotorDays < GRAD_HIGH_DAYS_REQUIRED) {
     missing.push(`${GRAD_HIGH_DAYS_REQUIRED - highOrMotorDays} korkeaa lentopäivää`);
   }
+  if (!stats.has_approval) {
+    missing.push('Tarkastuslento');
+  }
   if (!stats.pp2_exam_passed) {
     missing.push('PP2-koe');
   }
@@ -647,6 +650,7 @@ const checkGraduationReadiness = async (studentId) => {
       high_flights_required: GRAD_HIGH_FLIGHTS_REQUIRED,
       high_days: highOrMotorDays,
       high_days_required: GRAD_HIGH_DAYS_REQUIRED,
+      has_approval: !!stats.has_approval,
       pp2_exam_passed: !!stats.pp2_exam_passed,
       theory_completed: completedTopics,
       theory_total: totalTopics
