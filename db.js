@@ -144,6 +144,10 @@ async function migrate(w) {
       status         TEXT    DEFAULT NULL,
       pp2_exam_passed INTEGER DEFAULT 0,
       pp2_exam_date  TEXT    DEFAULT NULL,
+      mova_status    TEXT    DEFAULT NULL,
+      mova_exam_passed INTEGER DEFAULT 0,
+      mova_exam_date TEXT    DEFAULT NULL,
+      mova_graduated_at TIMESTAMP DEFAULT NULL,
       must_change_password INTEGER DEFAULT 0,
       course_started TEXT    DEFAULT NULL,
       student_notes  TEXT    DEFAULT NULL,
@@ -176,6 +180,11 @@ async function migrate(w) {
       reserve_size          TEXT    DEFAULT '',
       reserve_pack_date     TEXT,
       reserve_club_owned    INTEGER DEFAULT 0,
+      motor_manufacturer    TEXT    DEFAULT '',
+      motor_model           TEXT    DEFAULT '',
+      motor_serial          TEXT    DEFAULT '',
+      motor_last_inspection TEXT    DEFAULT NULL,
+      motor_total_hours     INTEGER DEFAULT NULL,
       updated_at            TIMESTAMP,
       created_at            TIMESTAMP DEFAULT NOW()
     );
@@ -185,7 +194,7 @@ async function migrate(w) {
       student_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       date               TEXT    NOT NULL,
       flight_count       INTEGER NOT NULL DEFAULT 1,
-      flight_type        TEXT    NOT NULL CHECK(flight_type IN ('low','high')),
+      flight_type        TEXT    NOT NULL CHECK(flight_type IN ('low','high','motor')),
       site_id            INTEGER NOT NULL REFERENCES sites(id),
       weather            TEXT    DEFAULT NULL,
       exercises          TEXT    DEFAULT NULL,
@@ -258,7 +267,7 @@ async function migrate(w) {
 
     CREATE TABLE IF NOT EXISTS theory_sections (
       id          SERIAL PRIMARY KEY,
-      level       TEXT    NOT NULL CHECK(level IN ('pp1','pp2')),
+      level       TEXT    NOT NULL CHECK(level IN ('pp1','pp2','mova')),
       key         TEXT    NOT NULL UNIQUE,
       title       TEXT    NOT NULL,
       sort_order  INTEGER NOT NULL DEFAULT 0,

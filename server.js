@@ -3015,6 +3015,93 @@ initDb().then(async () => {
     console.error('Chief/settings migration failed:', e.message);
   }
 
+  // Migration: MOVA (motorized paraglider) training fields
+  try {
+    const db = getDb();
+    const pool = db.getPool();
+    // users: MOVA progress fields
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_status TEXT DEFAULT NULL`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_exam_passed INTEGER DEFAULT 0`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_exam_date TEXT DEFAULT NULL`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_graduated_at TIMESTAMP DEFAULT NULL`);
+    // equipment: optional motor fields
+    await pool.query(`ALTER TABLE equipment ADD COLUMN IF NOT EXISTS motor_manufacturer TEXT DEFAULT ''`);
+    await pool.query(`ALTER TABLE equipment ADD COLUMN IF NOT EXISTS motor_model TEXT DEFAULT ''`);
+    await pool.query(`ALTER TABLE equipment ADD COLUMN IF NOT EXISTS motor_serial TEXT DEFAULT ''`);
+    await pool.query(`ALTER TABLE equipment ADD COLUMN IF NOT EXISTS motor_last_inspection TEXT DEFAULT NULL`);
+    await pool.query(`ALTER TABLE equipment ADD COLUMN IF NOT EXISTS motor_total_hours INTEGER DEFAULT NULL`);
+    // flights.flight_type: allow 'motor' alongside low/high
+    await pool.query(`ALTER TABLE flights DROP CONSTRAINT IF EXISTS flights_flight_type_check`);
+    await pool.query(`ALTER TABLE flights ADD CONSTRAINT flights_flight_type_check CHECK (flight_type IN ('low','high','motor'))`);
+    // theory_sections.level: allow 'mova'
+    await pool.query(`ALTER TABLE theory_sections DROP CONSTRAINT IF EXISTS theory_sections_level_check`);
+    await pool.query(`ALTER TABLE theory_sections ADD CONSTRAINT theory_sections_level_check CHECK (level IN ('pp1','pp2','mova'))`);
+
+    // Seed MOVA theory sections + topics if not present
+    const movaExists = await db.prepare("SELECT id FROM theory_sections WHERE level = 'mova' LIMIT 1").get();
+    if (!movaExists) {
+      const movaSections = [
+        { level: 'mova', key: 'mova_aero', title: 'Aerodynamiikka', topics: [
+          { key: 'mova_aero_1', title: 'Moottorin vaikutus lennossa', dur: 30, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_aero_2', title: 'Kohtauskulma, tehon käyttö ja potkurin kierto', dur: 45, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_aero_3', title: 'Kaartojen suorittaminen koneen käydessä', dur: 30, comment: 'SIL koulutusohjelma 2013' }
+        ]},
+        { level: 'mova', key: 'mova_meteo', title: 'Sääoppi', topics: [
+          { key: 'mova_meteo_1', title: 'Ilman kosteuden vaikutus moottorin toimintaan', dur: 30, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_meteo_2', title: 'Tuuligradientti ja sen huomioiminen', dur: 30, comment: 'SIL koulutusohjelma 2013' }
+        ]},
+        { level: 'mova', key: 'mova_engine', title: 'Liidin ja moottori', topics: [
+          { key: 'mova_engine_1', title: 'Moottorin rakenne ja toiminta', dur: 45, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_engine_2', title: 'Moottorin huolto, polttoaineet', dur: 45, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_engine_3', title: 'Lentokelpoisuuden ylläpito', dur: 30, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_engine_4', title: 'Tarkastuslistat', dur: 30, comment: 'SIL koulutusohjelma 2013' }
+        ]},
+        { level: 'mova', key: 'mova_rules', title: 'Säännöt ja määräykset', topics: [
+          { key: 'mova_rules_1', title: 'Lentosäännöt ja ilmatilaluokat', dur: 45, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_rules_2', title: 'Ilmailukartta ja sen lukeminen', dur: 30, comment: 'SIL koulutusohjelma 2013' }
+        ]},
+        { level: 'mova', key: 'mova_prep', title: 'Lennonvalmistelu', topics: [
+          { key: 'mova_prep_1', title: 'Säätietojen hankkiminen', dur: 30, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_prep_2', title: 'Lentopaikan valinta', dur: 30, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_prep_3', title: 'Lentosuunnitelman tekeminen', dur: 30, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_prep_4', title: 'Toiminta valvotussa ilmatilassa', dur: 30, comment: 'SIL koulutusohjelma 2013' }
+        ]},
+        { level: 'mova', key: 'mova_flying', title: 'Lentäminen', topics: [
+          { key: 'mova_flying_1', title: 'Lentoliikerajoitukset ja lentäjän painon merkitys', dur: 30, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_flying_2', title: 'Moottorin turvallinen käyttö maassa ja ilmassa', dur: 45, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_flying_3', title: 'Turvallinen lentotapa', dur: 30, comment: 'SIL koulutusohjelma 2013' }
+        ]},
+        { level: 'mova', key: 'mova_physio', title: 'Ilmailufysiologia', topics: [
+          { key: 'mova_physio_1', title: 'Kuulon suojaaminen', dur: 15, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_physio_2', title: 'Moottorin painon vaikutus', dur: 15, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_physio_3', title: 'Kylmyys', dur: 15, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_physio_4', title: 'Happirajat', dur: 15, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_physio_5', title: 'Väsymystilat', dur: 15, comment: 'SIL koulutusohjelma 2013' },
+          { key: 'mova_physio_6', title: 'Jännittäminen', dur: 15, comment: 'SIL koulutusohjelma 2013' }
+        ]}
+      ];
+
+      // Start sort_order after existing pp1/pp2 sections to keep MOVA at the end
+      const maxOrderRow = await db.prepare('SELECT COALESCE(MAX(sort_order), -1) AS m FROM theory_sections').get();
+      let sortOrder = parseInt(maxOrderRow.m) + 1;
+      let topicCount = 0;
+      for (const sec of movaSections) {
+        const secResult = await db.prepare('INSERT INTO theory_sections (level,key,title,sort_order) VALUES (?,?,?,?)')
+          .run(sec.level, sec.key, sec.title, sortOrder++);
+        const sectionId = secResult.lastInsertRowid;
+        let topicSort = 0;
+        for (const t of sec.topics) {
+          await db.prepare('INSERT INTO theory_topics_def (section_id,key,title,duration_minutes,comment,sort_order) VALUES (?,?,?,?,?,?)')
+            .run(sectionId, t.key, t.title, t.dur, t.comment, topicSort++);
+          topicCount++;
+        }
+      }
+      console.log(`Seeded ${movaSections.length} MOVA theory sections with ${topicCount} topics`);
+    }
+  } catch(e) {
+    console.error('MOVA migration failed:', e.message);
+  }
+
   // Fix any double-encoded UTF-8 characters from previous seed data
   try {
     await fixDoubleEncodedUtf8();
