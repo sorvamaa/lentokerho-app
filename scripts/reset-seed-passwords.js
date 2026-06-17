@@ -1,17 +1,20 @@
-// One-shot: nollaa kaikkien tunnettujen seed-tilien salasanat 8-merkkisiksi
+// One-shot: nollaa tunnettujen seed-tilien salasanat 8-merkkisiksi
 // kertakäyttösalasanoiksi ja pakottaa salasananvaihdon ensimmäisellä loginilla.
 //
 // Käyttö (lokaalisti, tuotannon DB:tä vasten Railwayn julkisen proxyn yli):
 //   1. Avaa Railway → Postgres → Variables ja kopioi DATABASE_PUBLIC_URL
-//   2. Aja:
+//   2. Aja (nollaa kaikki seed-käyttäjät):
 //        DATABASE_URL='postgresql://...' node scripts/reset-seed-passwords.js
+//      Tai vain valitut käyttäjät komentoriviparametreina:
+//        DATABASE_URL='postgresql://...' node scripts/reset-seed-passwords.js admin Marko
 //   3. Toimita salasanat käyttäjille turvallisesti (Signal/SMS, ei sähköposti)
 
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const { Pool } = require('pg');
 
-const SEED_USERS = ['admin', 'Taavi', 'Marko', 'Väiski', 'Jarno', 'Juho'];
+const DEFAULT_USERS = ['admin', 'Taavi', 'Marko', 'Väiski', 'Jarno', 'Juho'];
+const SEED_USERS = process.argv.length > 2 ? process.argv.slice(2) : DEFAULT_USERS;
 
 // 55 merkkiä, ei sekoittuvia (0/O/o, 1/l/I)
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
