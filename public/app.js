@@ -128,7 +128,12 @@ function showAppView() {
   if (currentUser) {
     const roleLabels = { admin: 'Pääkäyttäjä', instructor: 'Ohjaaja', student: 'Oppilas' };
     const roleLabel = roleLabels[currentUser.role] || currentUser.role;
-    $('user-display').textContent = currentUser.name + ' (' + roleLabel + ')';
+    const ud = $('user-display');
+    ud.textContent = currentUser.name + ' (' + roleLabel + ')';
+    ud.style.cursor = 'pointer';
+    ud.style.textDecoration = 'underline dotted';
+    ud.title = 'Muokkaa omia tietoja';
+    ud.onclick = () => showProfileModal();
     // Show club name for non-admin users
     loadClubNameToHeader();
   }
@@ -435,6 +440,53 @@ async function handleLogin() {
       window.location.hash = '#dashboard';
     }
     navigate();
+  }
+}
+
+function showProfileModal() {
+  if (!currentUser) return;
+  const html = `
+    <form onsubmit="handleSaveProfile(event)" style="padding: 4px;">
+      <p style="color: #666; font-size: 0.9em; margin: 0 0 14px;">Käyttäjätunnusta (<code>${escapeHtml(currentUser.username)}</code>) ei voi muuttaa täältä. Salasanan vaihtoon käytä "Vaihda salasana" -toimintoa.</p>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Nimi *</label>
+        <input type="text" id="profile-name" value="${escapeHtml(currentUser.name || '')}" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Sähköposti *</label>
+        <input type="email" id="profile-email" value="${escapeHtml(currentUser.email || '')}" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+        <div style="font-size: 0.85em; color: #888; margin-top: 4px;">Käytetään "Unohdin salasanan" -toimintoon. Vaihda oikeaan osoitteeseesi.</div>
+      </div>
+      <div class="form-group" style="margin-bottom: 12px;">
+        <label>Puhelin</label>
+        <input type="tel" id="profile-phone" value="${escapeHtml(currentUser.phone || '')}" style="width: 100%; padding: 8px; box-sizing: border-box;">
+      </div>
+      <div style="margin-top: 20px; text-align: right; display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+        <button type="button" class="btn btn-secondary" onclick="hideModal()">Peruuta</button>
+        <button type="submit" class="btn btn-primary">Tallenna</button>
+      </div>
+    </form>
+  `;
+  showModal('Omat tiedot', html);
+}
+
+async function handleSaveProfile(event) {
+  event.preventDefault();
+  const payload = {
+    name: $('profile-name').value.trim(),
+    email: $('profile-email').value.trim(),
+    phone: $('profile-phone').value.trim() || null
+  };
+  if (!payload.name || !payload.email) {
+    showError('Nimi ja sähköposti vaaditaan');
+    return;
+  }
+  const updated = await api('PUT', '/api/me', payload);
+  if (updated) {
+    hideModal();
+    showSuccess('Tiedot päivitetty');
+    currentUser = updated;
+    showAppView();
   }
 }
 

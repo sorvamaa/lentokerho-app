@@ -373,6 +373,35 @@ app.get('/api/me', requireAuth, async (req, res) => {
   res.json(user);
 });
 
+// PUT /api/me — update own profile (name, email, phone)
+app.put('/api/me', requireAuth, async (req, res) => {
+  const { name, email, phone } = req.body;
+  const userId = req.session.userId;
+  const db = getDb();
+
+  if (email !== undefined && email !== null && email.trim() !== '') {
+    const existing = await db.prepare('SELECT id FROM users WHERE email = ? AND id <> ?').get(email.trim(), userId);
+    if (existing) {
+      return res.status(409).json({ error: 'Sähköpostiosoite on jo käytössä toisella käyttäjällä.' });
+    }
+  }
+
+  const updates = [];
+  const values = [];
+  if (name !== undefined)  { updates.push('name = ?');  values.push(String(name).trim()); }
+  if (email !== undefined) { updates.push('email = ?'); values.push(String(email).trim()); }
+  if (phone !== undefined) { updates.push('phone = ?'); values.push(phone === null || phone === '' ? null : String(phone).trim()); }
+
+  if (updates.length === 0) {
+    return res.status(400).json({ error: 'Ei muutettavaa tietoa.' });
+  }
+  values.push(userId);
+  await db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  await logAction(userId, 'UPDATE', 'user', userId, { fields: Object.keys(req.body) });
+  const updated = await getUserWithoutPassword(userId);
+  res.json(updated);
+});
+
 // POST /api/change-password
 app.post('/api/change-password', requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
