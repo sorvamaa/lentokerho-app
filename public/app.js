@@ -229,7 +229,9 @@ function showConfirm(message, onConfirm, options = {}) {
 
 function formatDate(dateStr) {
   if (!dateStr) return '';
-  const parts = dateStr.split('-');
+  // Accept both 'YYYY-MM-DD' and 'YYYY-MM-DDThh:mm:ss...' (timestamps from server)
+  const s = String(dateStr).slice(0, 10);
+  const parts = s.split('-');
   if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`;
   return dateStr;
 }
@@ -1059,6 +1061,8 @@ async function renderStudentDetail(id) {
         </div>
       </div>
 
+      <div id="graduation-banner" style="margin-bottom: 20px;"></div>
+
       <div class="tabs">
         <div style="display: flex; gap: 0; border-bottom: 2px solid #dee2e6; margin-bottom: 20px; flex-wrap: wrap;">
           <button class="tab-btn active" data-tab="flights-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; border-bottom: 2px solid #2E6DA4; margin-bottom: -2px; font-weight: bold;">Lennot</button>
@@ -1118,6 +1122,98 @@ async function renderStudentDetail(id) {
   if (isInstructor) {
     loadNotesTab(id, student);
   }
+
+  renderGraduationBanner(id, student);
+}
+
+async function renderGraduationBanner(studentId, student) {
+  const container = document.getElementById('graduation-banner');
+  if (!container) return;
+
+  const isInstructor = currentUser && (currentUser.role === 'instructor' || currentUser.role === 'admin');
+  const isOwnProfile = currentUser && currentUser.role === 'student' && currentUser.id == studentId;
+
+  if (student.status === 'completed') {
+    container.innerHTML = `
+      <div style="background: #d4edda; border: 1px solid #28a745; border-radius: 6px; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <div>
+          <strong>Valmistunut pilotti</strong>
+          ${student.graduated_at ? ` · ${formatDate(student.graduated_at)}` : ''}
+        </div>
+        <button class="btn btn-primary" onclick="downloadCertificate(${studentId})">Lataa kurssitodistus</button>
+      </div>
+    `;
+    return;
+  }
+
+  if (!isInstructor && !isOwnProfile) {
+    container.innerHTML = '';
+    return;
+  }
+
+  const readiness = await api('GET', `/api/students/${studentId}/graduation-readiness`);
+  if (!readiness) {
+    container.innerHTML = '';
+    return;
+  }
+
+  if (readiness.ready) {
+    container.innerHTML = `
+      <div style="background: #d1ecf1; border: 1px solid #0c5460; border-radius: 6px; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+        <div>
+          <strong>Valmis valmistumaan</strong> · kaikki vaatimukset täyttyvät
+        </div>
+        ${isInstructor ? `<button class="btn btn-primary" onclick="markStudentGraduated(${studentId})">Merkitse valmiiksi</button>` : ''}
+      </div>
+    `;
+  } else {
+    const missingHtml = readiness.missing.map(m => `<li>${escapeHtml(m)}</li>`).join('');
+    container.innerHTML = `
+      <div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 14px 18px;">
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap;">
+          <div>
+            <strong>Valmistumiseen tarvitaan vielä:</strong>
+            <ul style="margin: 6px 0 0 18px; padding: 0;">${missingHtml}</ul>
+          </div>
+          ${isInstructor ? `<button class="btn btn-secondary" disabled title="Vaatimukset eivät vielä täyty" style="opacity: 0.6; cursor: not-allowed;">Merkitse valmiiksi</button>` : ''}
+        </div>
+      </div>
+    `;
+  }
+}
+
+async function markStudentGraduated(studentId) {
+  const student = await api('GET', `/api/students/${studentId}`);
+  if (!student) return;
+
+  if (!confirm(`Merkitse ${student.name} valmistuneeksi pilotiksi (PP2)? Tämä tallentaa valmistumispäivän ja avaa kurssitodistuksen lataamisen.`)) {
+    return;
+  }
+
+  const result = await api('PUT', `/api/students/${studentId}`, { status: 'completed' });
+  if (!result) return;
+
+  showSuccess('Onnittelut! Oppilas merkitty valmistuneeksi.');
+
+  const html = `
+    <p>Oppilas on nyt merkitty valmistuneeksi. Haluatko ladata kurssitodistuksen?</p>
+    <p style="font-size: 0.9em; color: #666;">Voit ladata todistuksen myöhemmin oppilaan profiilista.</p>
+    <div style="margin-top: 16px; text-align: right;">
+      <button class="btn btn-secondary" onclick="hideModal(); renderStudentDetail(${studentId})">Sulje</button>
+      <button class="btn btn-primary" onclick="hideModal(); downloadCertificate(${studentId}); renderStudentDetail(${studentId})">Lataa todistus</button>
+    </div>
+  `;
+  showModal('Kurssitodistus', html);
+}
+
+function downloadCertificate(studentId) {
+  const url = `/api/students/${studentId}/certificate.pdf`;
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 async function loadFlightsTab(studentId) {

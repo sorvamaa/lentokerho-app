@@ -601,6 +601,47 @@ app.post('/api/admin/reset-password', requireAuth, requireInstructor, async (req
 // STUDENT ROUTES
 // ============================================================================
 
+// Graduation requirements for PP2 pilot
+const GRAD_LOW_FLIGHTS_REQUIRED = 5;
+const GRAD_HIGH_FLIGHTS_REQUIRED = 40;
+
+// Helper: check whether a student meets all graduation requirements
+const checkGraduationReadiness = async (studentId) => {
+  const db = getDb();
+  const stats = await getStudentStats(studentId);
+  const totalRow = await db.prepare('SELECT COUNT(*) AS c FROM theory_topics_def').get();
+  const totalTopics = parseInt(totalRow.c);
+  const completedTopics = stats.theory_pp1 + stats.theory_pp2;
+
+  const missing = [];
+  if (stats.low_flights < GRAD_LOW_FLIGHTS_REQUIRED) {
+    missing.push(`${GRAD_LOW_FLIGHTS_REQUIRED - stats.low_flights} matalaa lentoa`);
+  }
+  if (stats.high_flights < GRAD_HIGH_FLIGHTS_REQUIRED) {
+    missing.push(`${GRAD_HIGH_FLIGHTS_REQUIRED - stats.high_flights} korkeaa lentoa`);
+  }
+  if (!stats.pp2_exam_passed) {
+    missing.push('PP2-koe');
+  }
+  if (completedTopics < totalTopics) {
+    missing.push(`${totalTopics - completedTopics} teoria-aihetta`);
+  }
+
+  return {
+    ready: missing.length === 0,
+    missing,
+    progress: {
+      low_flights: stats.low_flights,
+      low_flights_required: GRAD_LOW_FLIGHTS_REQUIRED,
+      high_flights: stats.high_flights,
+      high_flights_required: GRAD_HIGH_FLIGHTS_REQUIRED,
+      pp2_exam_passed: !!stats.pp2_exam_passed,
+      theory_completed: completedTopics,
+      theory_total: totalTopics
+    }
+  };
+};
+
 // Helper: Calculate student stats
 const getStudentStats = async (studentId) => {
   const db = getDb();
@@ -755,7 +796,7 @@ app.get('/api/students/:id', requireAuth, async (req, res) => {
 
   // Never return password_hash — use explicit column list
   const student = await db.prepare(
-    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, pp2_exam_date, course_started, student_notes, created_at FROM users WHERE id = ? AND role = ?'
+    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, pp2_exam_date, course_started, student_notes, graduated_at, created_at FROM users WHERE id = ? AND role = ?'
   ).get(id, 'student');
 
   if (!student) {
@@ -778,11 +819,15 @@ app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) =>
     return res.status(404).json({ error: 'Student not found' });
   }
 
-  // Validate: cannot set status to 'completed' without pp2_exam_passed
-  if (status === 'completed') {
-    const examPassed = pp2_exam_passed !== undefined ? pp2_exam_passed : student.pp2_exam_passed;
-    if (!examPassed) {
-      return res.status(400).json({ error: 'PP2-koe täytyy olla suoritettu ennen valmistumista' });
+  // Validate graduation: set status to 'completed' only when all requirements met
+  if (status === 'completed' && student.status !== 'completed') {
+    const readiness = await checkGraduationReadiness(id);
+    if (!readiness.ready) {
+      return res.status(400).json({
+        error: 'Oppilas ei vielä täytä valmistumisen ehtoja.',
+        missing: readiness.missing,
+        progress: readiness.progress
+      });
     }
   }
 
@@ -792,7 +837,15 @@ app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) =>
   if (name !== undefined) { updates.push('name = ?'); values.push(name); }
   if (email !== undefined) { updates.push('email = ?'); values.push(email); }
   if (phone !== undefined) { updates.push('phone = ?'); values.push(phone); }
-  if (status !== undefined) { updates.push('status = ?'); values.push(status); }
+  if (status !== undefined) {
+    updates.push('status = ?'); values.push(status);
+    // Stamp/clear graduation date based on status transition
+    if (status === 'completed' && !student.graduated_at) {
+      updates.push('graduated_at = CURRENT_TIMESTAMP');
+    } else if (status !== 'completed' && student.graduated_at) {
+      updates.push('graduated_at = NULL');
+    }
+  }
   if (pp2_exam_passed !== undefined) { updates.push('pp2_exam_passed = ?'); values.push(pp2_exam_passed ? 1 : 0); }
   if (pp2_exam_date !== undefined) { updates.push('pp2_exam_date = ?'); values.push(pp2_exam_date || null); }
   if (course_started !== undefined) { updates.push('course_started = ?'); values.push(course_started); }
@@ -828,6 +881,156 @@ app.delete('/api/students/:id', requireAuth, requireInstructor, async (req, res)
   await logAction(req.session.userId, 'DELETE', 'student', id, {});
 
   res.json({ success: true });
+});
+
+// GET /api/students/:id/graduation-readiness
+// Returns whether student meets graduation criteria, with details for UI display
+app.get('/api/students/:id/graduation-readiness', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const requestingUser = await db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+  if (requestingUser.role === 'student' && req.session.userId !== parseInt(id)) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const student = await db.prepare('SELECT id FROM users WHERE id = ? AND role = ?').get(id, 'student');
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+
+  const readiness = await checkGraduationReadiness(id);
+  res.json(readiness);
+});
+
+// GET /api/students/:id/certificate.pdf
+// Generates graduation certificate PDF (cover + theory + flights + attachments merged)
+app.get('/api/students/:id/certificate.pdf', requireAuth, async (req, res) => {
+  const { id } = req.params;
+  const db = getDb();
+
+  const requestingUser = await db.prepare('SELECT role FROM users WHERE id = ?').get(req.session.userId);
+  if (requestingUser.role === 'student' && req.session.userId !== parseInt(id)) {
+    return res.status(403).json({ error: 'Not authorized' });
+  }
+
+  const student = await db.prepare(
+    'SELECT id, username, name, email, phone, club_id, status, pp2_exam_passed, pp2_exam_date, course_started, graduated_at FROM users WHERE id = ? AND role = ?'
+  ).get(id, 'student');
+  if (!student) return res.status(404).json({ error: 'Student not found' });
+
+  if (student.status !== 'completed') {
+    return res.status(400).json({ error: 'Kurssitodistus voidaan ladata vasta kun oppilas on merkitty valmiiksi.' });
+  }
+
+  // Gather all data needed for the certificate
+  const club = student.club_id
+    ? await db.prepare('SELECT id, name, slug, description, contact_email, contact_phone, website, logo_path FROM clubs WHERE id = ?').get(student.club_id)
+    : { name: '', logo_path: null };
+
+  const chief = club.id
+    ? await db.prepare('SELECT id, name FROM users WHERE club_id = ? AND role = ? AND is_chief = 1 LIMIT 1').get(club.id, 'instructor')
+    : null;
+
+  const stats = await getStudentStats(student.id);
+
+  // Approval filter mirrors getStudentStats — only count approved flights if club requires
+  let approvalFilter = '';
+  if (club.id) {
+    const cs = await db.prepare('SELECT require_flight_approval FROM club_settings WHERE club_id = ?').get(club.id);
+    if (cs && cs.require_flight_approval) approvalFilter = ' AND f.approved = 1';
+  }
+
+  const flights = await db.prepare(
+    `SELECT f.id, f.date, f.flight_count, f.flight_type, f.notes, f.is_approval_flight, s.name AS site_name
+     FROM flights f LEFT JOIN sites s ON s.id = f.site_id
+     WHERE f.student_id = ?${approvalFilter}
+     ORDER BY f.date ASC, f.id ASC`
+  ).all(student.id);
+
+  // Instructors who have added flights or theory completions for this student
+  const instructorIds = new Set();
+  const flightInstructors = await db.prepare(
+    'SELECT DISTINCT added_by FROM flights WHERE student_id = ?'
+  ).all(student.id);
+  flightInstructors.forEach(r => instructorIds.add(r.added_by));
+  const theoryInstructors = await db.prepare(
+    'SELECT DISTINCT completed_by FROM theory_completions WHERE student_id = ?'
+  ).all(student.id);
+  theoryInstructors.forEach(r => instructorIds.add(r.completed_by));
+  const instructors = [];
+  for (const iid of instructorIds) {
+    const u = await db.prepare('SELECT id, name FROM users WHERE id = ?').get(iid);
+    if (u) instructors.push(u);
+  }
+  // Sort so chief comes first if present, else by name
+  instructors.sort((a, b) => {
+    if (chief && a.id === chief.id) return -1;
+    if (chief && b.id === chief.id) return 1;
+    return (a.name || '').localeCompare(b.name || '');
+  });
+
+  // Theory: completions joined with topic_def + section, grouped by level/section
+  const completions = await db.prepare(
+    `SELECT tc.topic_key, tc.completed_at, td.title AS topic_title, td.duration_minutes,
+            ts.level, ts.key AS section_key, ts.title AS section_title, ts.sort_order AS section_order, td.sort_order AS topic_order
+     FROM theory_completions tc
+     JOIN theory_topics_def td ON td.key = tc.topic_key
+     JOIN theory_sections ts ON ts.id = td.section_id
+     WHERE tc.student_id = ?
+     ORDER BY ts.level, ts.sort_order, td.sort_order`
+  ).all(student.id);
+
+  const theoryBySection = { pp1: [], pp2: [] };
+  let theoryTotalMinutes = 0;
+  const sectionMap = {};
+  for (const c of completions) {
+    theoryTotalMinutes += parseInt(c.duration_minutes || 0);
+    const mapKey = `${c.level}::${c.section_key}`;
+    if (!sectionMap[mapKey]) {
+      const section = { title: c.section_title, topics: [] };
+      sectionMap[mapKey] = section;
+      theoryBySection[c.level].push(section);
+    }
+    sectionMap[mapKey].topics.push({ title: c.topic_title, completed_at: c.completed_at });
+  }
+
+  const attachments = await db.prepare(
+    'SELECT id, filename, stored_name, mimetype, size_bytes, created_at FROM attachments WHERE student_id = ? ORDER BY created_at ASC'
+  ).all(student.id);
+
+  let logoBuffer = null;
+  if (club.logo_path) {
+    try {
+      const logoPath = path.isAbsolute(club.logo_path) ? club.logo_path : path.join(__dirname, club.logo_path);
+      if (fs.existsSync(logoPath)) logoBuffer = fs.readFileSync(logoPath);
+    } catch (_) { /* ignore */ }
+  }
+
+  try {
+    const { generateCertificate } = require('./cert-generator');
+    const pdfBuffer = await generateCertificate({
+      student,
+      club,
+      stats,
+      flights,
+      theoryBySection,
+      theoryTotalMinutes,
+      instructors,
+      chief,
+      attachments,
+      uploadDir: UPLOAD_DIR,
+      logoBuffer
+    });
+
+    await logAction(req.session.userId, 'READ', 'certificate', student.id, { filename_size: pdfBuffer.length });
+
+    const safeName = (student.name || 'oppilas').replace(/[^A-Za-z0-9_\-]+/g, '_');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Kurssitodistus_${safeName}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (e) {
+    console.error('Certificate generation failed:', e);
+    res.status(500).json({ error: 'Kurssitodistuksen luominen epäonnistui: ' + e.message });
+  }
 });
 
 // ============================================================================
@@ -2774,6 +2977,7 @@ initDb().then(async () => {
     const pool = db.getPool();
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_chief INTEGER DEFAULT 0`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_accepted_at TIMESTAMP DEFAULT NULL`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS graduated_at TIMESTAMP DEFAULT NULL`);
     await pool.query(`ALTER TABLE clubs ADD COLUMN IF NOT EXISTS contact_email TEXT DEFAULT NULL`);
     await pool.query(`ALTER TABLE clubs ADD COLUMN IF NOT EXISTS contact_phone TEXT DEFAULT NULL`);
     await pool.query(`ALTER TABLE clubs ADD COLUMN IF NOT EXISTS website TEXT DEFAULT NULL`);
