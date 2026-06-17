@@ -44,14 +44,29 @@ function drawHeader(doc, club, logoBuffer) {
   doc.fillColor('#000');
 }
 
-function drawCover(doc, student, club, stats, instructors, chief, theoryTotalMinutes, logoBuffer) {
+function drawCover(doc, type, student, club, stats, instructors, chief, theoryTotalMinutes, logoBuffer) {
   drawHeader(doc, club, logoBuffer);
+
+  // Resolve title/subtitle/body/summary by type
+  const isMova = type === 'mova';
+  const isCombined = type === 'combined';
+  const title = isMova ? 'MOVA-kelpoisuustodistus' : 'Kurssitodistus';
+  const subtitle = isCombined
+    ? 'Varjoliidon peruskoulutus PP2 + MOVA-kelpoisuus'
+    : isMova
+      ? 'Moottoroidun B-ryhmän varjoliitimen koulutus'
+      : 'Varjoliidon peruskoulutus PP2';
+  const bodyText = isMova
+    ? `on suorittanut hyväksytysti ${club.name || 'kerhon'} moottoroidun B-ryhmän varjoliitimen koulutuksen koulutusohjelman mukaisesti.`
+    : isCombined
+      ? `on suorittanut hyväksytysti ${club.name || 'kerhon'} varjoliitokurssin PP2-tasolla sekä moottoroidun B-ryhmän varjoliitimen koulutuksen koulutusohjelman mukaisesti.`
+      : `on suorittanut hyväksytysti ${club.name || 'kerhon'} varjoliitokurssin PP2-tasolla koulutusohjelman mukaisesti.`;
 
   // Title
   doc.font('Helvetica-Bold').fontSize(28).fillColor('#000')
-     .text('Kurssitodistus', 50, 160, { align: 'center', width: 495 });
+     .text(title, 50, 160, { align: 'center', width: 495 });
   doc.font('Helvetica').fontSize(12).fillColor('#666')
-     .text('Varjoliidon peruskoulutus PP2', 50, 195, { align: 'center', width: 495 });
+     .text(subtitle, 50, 195, { align: 'center', width: 495 });
 
   // Body
   doc.font('Helvetica').fontSize(13).fillColor('#666')
@@ -59,21 +74,36 @@ function drawCover(doc, student, club, stats, instructors, chief, theoryTotalMin
   doc.font('Times-Roman').fontSize(28).fillColor('#000')
      .text(student.name || '', 50, 275, { align: 'center', width: 495 });
   doc.font('Helvetica').fontSize(12).fillColor('#666')
-     .text(
-       `on suorittanut hyväksytysti ${club.name || 'kerhon'} varjoliitokurssin PP2-tasolla koulutusohjelman mukaisesti.`,
-       100, 320, { align: 'center', width: 395, lineGap: 3 }
-     );
+     .text(bodyText, 100, 320, { align: 'center', width: 395, lineGap: 3 });
 
-  // Summary table
+  // Summary table — content depends on certificate type
   const tableTop = 390;
   const tableLeft = 130;
   const tableRight = 465;
-  const rows = [
-    ['Kurssi aloitettu', formatDate(student.course_started)],
-    ['Kurssi suoritettu', formatDate(student.graduated_at)],
-    ['Lentoja yhteensä', String(stats.total_flights || 0)],
-    ['Teoriaopetuksen kokonaiskesto', formatTheoryDuration(theoryTotalMinutes)]
-  ];
+  let rows;
+  if (isMova) {
+    rows = [
+      ['MOVA-koulutus aloitettu', formatDate(student.mova_started_at)],
+      ['MOVA-koulutus suoritettu', formatDate(student.mova_graduated_at)],
+      ['Moottorilentoja', String(stats.motor_flights || 0)],
+      ['MOVA-teoriaopetuksen kokonaiskesto', formatTheoryDuration(theoryTotalMinutes)]
+    ];
+  } else if (isCombined) {
+    rows = [
+      ['Kurssi aloitettu', formatDate(student.course_started)],
+      ['Kurssi suoritettu', formatDate(student.graduated_at)],
+      ['MOVA suoritettu', formatDate(student.mova_graduated_at)],
+      ['Lentoja yhteensä', `${stats.total_flights || 0} (joista moottorilla ${stats.motor_flights || 0})`],
+      ['Teoriaopetuksen kokonaiskesto', formatTheoryDuration(theoryTotalMinutes)]
+    ];
+  } else {
+    rows = [
+      ['Kurssi aloitettu', formatDate(student.course_started)],
+      ['Kurssi suoritettu', formatDate(student.graduated_at)],
+      ['Lentoja yhteensä', String(stats.total_flights || 0)],
+      ['Teoriaopetuksen kokonaiskesto', formatTheoryDuration(theoryTotalMinutes)]
+    ];
+  }
   doc.fontSize(11).fillColor('#000');
   rows.forEach((row, i) => {
     const y = tableTop + i * 24;
@@ -85,8 +115,9 @@ function drawCover(doc, student, club, stats, instructors, chief, theoryTotalMin
        .dash(2, { space: 2 }).strokeColor('#ddd').lineWidth(0.5).stroke().undash();
   });
 
-  // Signature: only the chief instructor (koulutuspäällikkö), centered
-  const sigTop = 600;
+  // Signature: only the chief instructor (koulutuspäällikkö), centered.
+  // Bump signature position down a bit when there's an extra row in the table.
+  const sigTop = rows.length >= 5 ? 620 : 600;
   const sigWidth = 220;
   const sigX = (595 - sigWidth) / 2;
   doc.moveTo(sigX, sigTop).lineTo(sigX + sigWidth, sigTop).strokeColor('#666').lineWidth(0.5).stroke();
@@ -97,9 +128,10 @@ function drawCover(doc, student, club, stats, instructors, chief, theoryTotalMin
 
   // Place + date
   const place = club.name ? club.name.replace(/^.*?(Lentokerho|Ry|ry).*$/, '') : '';
-  const placeText = `${club.contact_city || place || ''}, ${formatDate(student.graduated_at)}`.replace(/^, /, '');
+  const dateForPlace = isMova ? student.mova_graduated_at : student.graduated_at;
+  const placeText = `${club.contact_city || place || ''}, ${formatDate(dateForPlace)}`.replace(/^, /, '');
   doc.font('Helvetica').fontSize(11).fillColor('#666')
-     .text(placeText, 50, 680, { align: 'center', width: 495 });
+     .text(placeText, 50, sigTop + 80, { align: 'center', width: 495 });
 
   // Footer
   doc.font('Helvetica').fontSize(8).fillColor('#999')
@@ -120,11 +152,12 @@ function drawTheoryPage(doc, theoryBySection, club, logoBuffer) {
   doc.font('Helvetica-Bold').fontSize(20).fillColor('#000').text('Teoriasuoritukset', 50, 140);
 
   let y = 180;
-  for (const level of ['pp1', 'pp2']) {
+  for (const level of ['pp1', 'pp2', 'mova']) {
     const sections = theoryBySection[level] || [];
     if (sections.length === 0) continue;
     if (y > 700) { doc.addPage(); drawHeader(doc, club, logoBuffer); y = 140; }
-    doc.font('Helvetica-Bold').fontSize(14).fillColor('#000').text(level.toUpperCase(), 50, y);
+    const levelLabel = level === 'mova' ? 'MOVA' : level.toUpperCase();
+    doc.font('Helvetica-Bold').fontSize(14).fillColor('#000').text(levelLabel, 50, y);
     y += 22;
     for (const section of sections) {
       if (y > 720) { doc.addPage(); drawHeader(doc, club, logoBuffer); y = 140; }
@@ -178,7 +211,7 @@ function drawFlightsPage(doc, flights, club, logoBuffer) {
       y += 4;
       doc.font('Helvetica').fontSize(9).fillColor('#000');
     }
-    const typeLabel = f.flight_type === 'low' ? 'Matala' : 'Korkea';
+    const typeLabel = f.flight_type === 'low' ? 'Matala' : f.flight_type === 'motor' ? 'Moottori' : 'Korkea';
     const approval = f.is_approval_flight ? ' (T)' : '';
     const values = {
       idx: String(i + 1),
@@ -291,9 +324,10 @@ async function mergeAttachments(certBuffer, attachments, uploadDir) {
  * @returns {Promise<Buffer>} PDF bytes
  */
 async function generateCertificate(args) {
+  const type = args.type || 'basic';
   const doc = new PDFDocument({ size: 'A4', margin: 0, autoFirstPage: true, bufferPages: true });
-  drawCover(doc, args.student, args.club, args.stats, args.instructors || [], args.chief, args.theoryTotalMinutes || 0, args.logoBuffer);
-  drawTheoryPage(doc, args.theoryBySection || { pp1: [], pp2: [] }, args.club, args.logoBuffer);
+  drawCover(doc, type, args.student, args.club, args.stats, args.instructors || [], args.chief, args.theoryTotalMinutes || 0, args.logoBuffer);
+  drawTheoryPage(doc, args.theoryBySection || { pp1: [], pp2: [], mova: [] }, args.club, args.logoBuffer);
   drawFlightsPage(doc, args.flights || [], args.club, args.logoBuffer);
   drawAttachmentsListPage(doc, args.attachments || [], args.club, args.logoBuffer);
   // Page numbers
