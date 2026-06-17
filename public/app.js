@@ -40,7 +40,8 @@ async function getTheoryStructure(forceRefresh = false) {
 function getTheoryTotals(structure) {
   const pp1 = (structure.pp1 || []).reduce((sum, s) => sum + s.topics.length, 0);
   const pp2 = (structure.pp2 || []).reduce((sum, s) => sum + s.topics.length, 0);
-  return { PP1_TOTAL: pp1, PP2_TOTAL: pp2 };
+  const mova = (structure.mova || []).reduce((sum, s) => sum + s.topics.length, 0);
+  return { PP1_TOTAL: pp1, PP2_TOTAL: pp2, MOVA_TOTAL: mova };
 }
 
 function formatDuration(minutes) {
@@ -828,9 +829,10 @@ async function renderClubStudentsProgress() {
   mainContent.innerHTML = '<p style="text-align: center; padding: 40px;">Ladataan...</p>';
 
   const structure = await getTheoryStructure();
-  const { PP1_TOTAL, PP2_TOTAL } = getTheoryTotals(structure);
+  const { PP1_TOTAL, PP2_TOTAL, MOVA_TOTAL } = getTheoryTotals(structure);
   const LOW_TOTAL = 5;
   const HIGH_TOTAL = 40;
+  const MOTOR_TOTAL = 7;
 
   const filter = clubStudentsFilter || 'ongoing';
   const data = await api('GET', '/api/students?status=' + filter);
@@ -870,18 +872,33 @@ async function renderClubStudentsProgress() {
     students.forEach(s => {
       const theoryPp1 = s.theory_pp1 || 0;
       const theoryPp2 = s.theory_pp2 || 0;
+      const theoryMova = s.theory_mova || 0;
       const low = s.low_flights || 0;
-      const high = s.high_flights || 0;
+      const high = (s.high_flights || 0) + (s.motor_flights || 0);
+      const motor = s.motor_flights || 0;
       const approval = !!s.has_approval;
       const pp2Exam = !!s.pp2_exam_passed;
+      const pp4Exam = !!s.pp4_exam_passed;
+      const movaExam = !!s.mova_exam_passed;
+      const motorApproval = !!s.has_motor_approval;
+      const movaStarted = !!s.mova_status;
+      const movaCompleted = s.mova_status === 'completed';
 
-      const allDone =
+      const pp2Done =
         theoryPp1 >= PP1_TOTAL && PP1_TOTAL > 0 &&
         theoryPp2 >= PP2_TOTAL && PP2_TOTAL > 0 &&
         low >= LOW_TOTAL &&
         high >= HIGH_TOTAL &&
         approval &&
         pp2Exam;
+      const movaDone = !movaStarted || (
+        motor >= MOTOR_TOTAL &&
+        motorApproval &&
+        pp4Exam &&
+        movaExam &&
+        theoryMova >= MOVA_TOTAL && MOVA_TOTAL > 0
+      );
+      const allDone = pp2Done && movaDone;
 
       const dot = `<span title="${allDone ? 'Kaikki valmista' : 'Kesken'}" style="display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: ${allDone ? '#28a745' : '#adb5bd'}; border: 2px solid #fff; box-shadow: 0 0 0 1px #adb5bd;"></span>`;
 
@@ -889,12 +906,30 @@ async function renderClubStudentsProgress() {
         ? '<span style="color: #28a745; font-weight: bold;">✓</span>'
         : '<span style="color: #adb5bd;">–</span>';
 
+      const movaBadge = movaCompleted
+        ? '<span style="background: #28a745; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">MOVA</span>'
+        : movaStarted
+          ? '<span style="background: #fd7e14; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">MOVA kesken</span>'
+          : '';
+
+      const movaSection = movaStarted ? `
+        <div style="font-size: 0.85em; color: #333; font-weight: 600; margin-top: 12px; border-top: 1px dashed #dee2e6; padding-top: 10px;">MOVA</div>
+        ${progressBar(motor, MOTOR_TOTAL, 'Moottorilennot')}
+        ${progressBar(theoryMova, MOVA_TOTAL, 'MOVA-teoria')}
+        <div style="display: flex; gap: 14px; margin-top: 8px; font-size: 0.85em; color: #555; flex-wrap: wrap;">
+          <span>${checkMark(motorApproval)} MOVA-tarkkari</span>
+          <span>${checkMark(pp4Exam)} PP4-tentti${pp4Exam && s.pp4_exam_date ? ' (' + formatDate(s.pp4_exam_date) + ')' : ''}</span>
+          <span>${checkMark(movaExam)} MOVA-tentti${movaExam && s.mova_exam_date ? ' (' + formatDate(s.mova_exam_date) + ')' : ''}</span>
+        </div>
+      ` : '';
+
       html += `
         <div style="position: relative; border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; cursor: pointer; background: #fff; transition: box-shadow 0.2s;" onclick="window.location.hash='#student/${s.id}'" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.15)'" onmouseout="this.style.boxShadow='none'">
           <div style="position: absolute; top: 12px; right: 12px;">${dot}</div>
-          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding-right: 24px;">
+          <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding-right: 24px; flex-wrap: wrap;">
             <h3 style="margin: 0;">${escapeHtml(s.name)}</h3>
             ${getStatusBadge(s.status)}
+            ${movaBadge}
           </div>
           <div style="font-size: 0.8em; color: #888; margin-bottom: 10px;">${escapeHtml(s.email || '')}</div>
           <div style="font-size: 0.85em; color: #333; font-weight: 600; margin-top: 8px;">Teoria</div>
@@ -907,6 +942,7 @@ async function renderClubStudentsProgress() {
             <span>${checkMark(approval)} Tarkistuslento${approval && s.approval_flight_date ? ' (' + formatDate(s.approval_flight_date) + ')' : ''}</span>
             <span>${checkMark(pp2Exam)} PP2-tentti${pp2Exam && s.pp2_exam_date ? ' (' + formatDate(s.pp2_exam_date) + ')' : ''}</span>
           </div>
+          ${movaSection}
         </div>
       `;
     });
