@@ -1496,7 +1496,7 @@ app.get('/api/theory/structure', requireAuth, async (req, res) => {
   });
 
   // Build structure grouped by level
-  const structure = { pp1: [], pp2: [] };
+  const structure = { pp1: [], pp2: [], mova: [] };
   sections.forEach(s => {
     const sectionTopics = topicsBySection[s.id] || [];
     const totalDuration = sectionTopics.reduce((sum, t) => sum + (t.duration_minutes || 0), 0);

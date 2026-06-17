@@ -26,7 +26,7 @@ async function refreshCsrfToken() {
 // THEORY TOPICS — loaded dynamically from database
 // ============================================================================
 
-let theoryStructureCache = null; // { pp1: [...], pp2: [...] }
+let theoryStructureCache = null; // { pp1: [...], pp2: [...], mova: [...] }
 
 async function getTheoryStructure(forceRefresh = false) {
   if (theoryStructureCache && !forceRefresh) return theoryStructureCache;
@@ -34,7 +34,7 @@ async function getTheoryStructure(forceRefresh = false) {
   if (data) {
     theoryStructureCache = data;
   }
-  return theoryStructureCache || { pp1: [], pp2: [] };
+  return theoryStructureCache || { pp1: [], pp2: [], mova: [] };
 }
 
 function getTheoryTotals(structure) {
@@ -1069,6 +1069,7 @@ async function renderStudentDetail(id) {
           <button class="tab-btn" data-tab="theory-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Teoria</button>
           <button class="tab-btn" data-tab="equipment-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Kalusto</button>
           <button class="tab-btn" data-tab="attachments-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Liitteet</button>
+          <button class="tab-btn" data-tab="mova-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">MOVA</button>
           ${isInstructor ? `
             <button class="tab-btn" data-tab="notes-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Muistiinpanot</button>
           ` : ''}
@@ -1085,6 +1086,9 @@ async function renderStudentDetail(id) {
         </div>
         <div id="attachments-tab" class="tab-content" style="display: none;">
           <div id="attachments-content">Ladataan...</div>
+        </div>
+        <div id="mova-tab" class="tab-content" style="display: none;">
+          <div id="mova-content">Ladataan...</div>
         </div>
         ${isInstructor ? `
           <div id="notes-tab" class="tab-content" style="display: none;">
@@ -1119,6 +1123,7 @@ async function renderStudentDetail(id) {
   loadTheoryTab(id);
   loadEquipmentTab(id);
   loadAttachmentsTab(id);
+  loadMovaTab(id, student);
   if (isInstructor) {
     loadNotesTab(id, student);
   }
@@ -1134,13 +1139,25 @@ async function renderGraduationBanner(studentId, student) {
   const isOwnProfile = currentUser && currentUser.role === 'student' && currentUser.id == studentId;
 
   if (student.status === 'completed') {
+    const movaDone = student.mova_status === 'completed';
+    const movaLabel = movaDone && student.mova_graduated_at ? ` + MOVA · ${formatDate(student.mova_graduated_at)}` : '';
+    let downloadButtons = '';
+    if (movaDone) {
+      downloadButtons = `
+        <button class="btn btn-primary" onclick="downloadCertificate(${studentId}, 'combined')">Lataa yhdistetty todistus</button>
+        <button class="btn btn-secondary" onclick="downloadCertificate(${studentId}, 'basic')">PP2-todistus</button>
+        <button class="btn btn-secondary" onclick="downloadCertificate(${studentId}, 'mova')">MOVA-todistus</button>
+      `;
+    } else {
+      downloadButtons = `<button class="btn btn-primary" onclick="downloadCertificate(${studentId}, 'basic')">Lataa kurssitodistus</button>`;
+    }
     container.innerHTML = `
       <div style="background: #d4edda; border: 1px solid #28a745; border-radius: 6px; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
         <div>
           <strong>Valmistunut pilotti</strong>
-          ${student.graduated_at ? ` · ${formatDate(student.graduated_at)}` : ''}
+          ${student.graduated_at ? ` · ${formatDate(student.graduated_at)}` : ''}${movaLabel}
         </div>
-        <button class="btn btn-primary" onclick="downloadCertificate(${studentId})">Lataa kurssitodistus</button>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">${downloadButtons}</div>
       </div>
     `;
     return;
@@ -1200,14 +1217,14 @@ async function markStudentGraduated(studentId) {
     <p style="font-size: 0.9em; color: #666;">Voit ladata todistuksen myöhemmin oppilaan profiilista.</p>
     <div style="margin-top: 16px; text-align: right;">
       <button class="btn btn-secondary" onclick="hideModal(); renderStudentDetail(${studentId})">Sulje</button>
-      <button class="btn btn-primary" onclick="hideModal(); downloadCertificate(${studentId}); renderStudentDetail(${studentId})">Lataa todistus</button>
+      <button class="btn btn-primary" onclick="hideModal(); downloadCertificate(${studentId}, 'basic'); renderStudentDetail(${studentId})">Lataa todistus</button>
     </div>
   `;
   showModal('Kurssitodistus', html);
 }
 
-function downloadCertificate(studentId) {
-  const url = `/api/students/${studentId}/certificate.pdf`;
+function downloadCertificate(studentId, type) {
+  const url = `/api/students/${studentId}/certificate.pdf${type ? '?type=' + encodeURIComponent(type) : ''}`;
   const a = document.createElement('a');
   a.href = url;
   a.download = '';
@@ -1235,8 +1252,9 @@ async function loadFlightsTab(studentId) {
     </div>` : ''}
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; margin-bottom: 20px;">
       <div>${createProgressBar(stats.low_flights || 0, 5, 'Matalia lentoja')}</div>
-      <div>${createProgressBar(stats.high_flights || 0, 40, 'Korkeita lentoja')}</div>
-      <div>${createProgressBar(stats.high_days || 0, 7, 'Korkeita päiviä')}</div>
+      <div>${createProgressBar((stats.high_flights || 0) + (stats.motor_flights || 0), 40, 'Korkeita lentoja')}</div>
+      <div>${createProgressBar(stats.high_or_motor_days || 0, 7, 'Korkeita päiviä')}</div>
+      ${(stats.motor_flights || 0) > 0 || stats.mova_status ? `<div>${createProgressBar(stats.motor_flights || 0, 7, 'Moottorilentoja')}</div>` : ''}
       <div style="display: flex; align-items: center;">
         ${stats.has_approval ? `<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">Tarkistuslento suoritettu${stats.approval_flight_date ? ' ' + formatDate(stats.approval_flight_date) : ''}</span>` : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">Tarkistuslento vaaditaan</span>'}
       </div>
@@ -1272,8 +1290,8 @@ async function loadFlightsTab(studentId) {
 
   if (flights.length > 0) {
     flights.forEach(flight => {
-      const typeLabel = flight.flight_type === 'low' ? 'Matala' : 'Korkea';
-      const typeBg = flight.flight_type === 'low' ? '#6c757d' : '#2E6DA4';
+      const typeLabel = flight.flight_type === 'low' ? 'Matala' : flight.flight_type === 'motor' ? 'Moottori' : 'Korkea';
+      const typeBg = flight.flight_type === 'low' ? '#6c757d' : flight.flight_type === 'motor' ? '#fd7e14' : '#2E6DA4';
       const approvalTag = flight.is_approval_flight ? ' <span style="background: #28a745; color: #fff; padding: 1px 6px; border-radius: 3px; font-size: 0.8em;">Tarkistus</span>' : '';
 
       let statusBadge = '';
@@ -1350,7 +1368,7 @@ async function printFlightLogbook(studentId) {
   const printedAt = new Date().toLocaleDateString('fi-FI');
 
   const rows = flights.map((f, i) => {
-    const typeLabel = f.flight_type === 'low' ? 'Matala' : 'Korkea';
+    const typeLabel = f.flight_type === 'low' ? 'Matala' : f.flight_type === 'motor' ? 'Moottori' : 'Korkea';
     const approval = f.is_approval_flight ? ' (tarkistuslento)' : '';
     return `
       <tr>
@@ -1369,6 +1387,7 @@ async function printFlightLogbook(studentId) {
   const totalFlights = flights.reduce((sum, f) => sum + (f.flight_count || 0), 0);
   const lowFlights = flights.filter(f => f.flight_type === 'low').reduce((s, f) => s + (f.flight_count || 0), 0);
   const highFlights = flights.filter(f => f.flight_type === 'high').reduce((s, f) => s + (f.flight_count || 0), 0);
+  const motorFlights = flights.filter(f => f.flight_type === 'motor').reduce((s, f) => s + (f.flight_count || 0), 0);
 
   const html = `<!DOCTYPE html>
 <html lang="fi">
@@ -1414,7 +1433,7 @@ async function printFlightLogbook(studentId) {
   </div>
   <div class="summary">
     <strong>Yhteenveto:</strong> ${flights.length} merkintää, ${totalFlights} lentoa yhteensä
-    (matalia ${lowFlights}, korkeita ${highFlights})
+    (matalia ${lowFlights}, korkeita ${highFlights}${motorFlights > 0 ? ', moottorilla ' + motorFlights : ''})
   </div>
   <table>
     <thead>
@@ -1725,6 +1744,200 @@ async function loadAttachmentsTab(studentId) {
   $('attachments-content').innerHTML = html;
 }
 
+async function loadMovaTab(studentId, student) {
+  const container = document.getElementById('mova-content');
+  if (!container) return;
+  const isInstructor = currentUser && (currentUser.role === 'instructor' || currentUser.role === 'admin');
+
+  // Not started yet
+  if (!student.mova_status) {
+    container.innerHTML = `
+      <h2>MOVA-koulutus</h2>
+      <p style="color: #666;">MOVA-koulutusta ei ole aloitettu. Moottoroidun B-ryhmän varjoliitimen koulutus vaatii erikseen aloittamisen, jonka jälkeen MOVA-spesifiset teoriat, koe ja moottorilennot voidaan kirjata.</p>
+      ${isInstructor ? `<button class="btn btn-primary" onclick="startMovaTraining(${studentId})">Aloita MOVA-koulutus</button>` : '<p style="color: #999;">MOVA-koulutuksen aloittaa ohjaaja.</p>'}
+    `;
+    return;
+  }
+
+  const [readiness, flightData, theoryStructure] = await Promise.all([
+    api('GET', `/api/students/${studentId}/mova-readiness`),
+    api('GET', `/api/students/${studentId}/flights`),
+    getTheoryStructure()
+  ]);
+  if (!readiness || !flightData) return;
+
+  const stats = flightData.student || {};
+  const flights = flightData.flights || [];
+  const motorFlights = flights.filter(f => f.flight_type === 'motor');
+  const movaSections = (theoryStructure && theoryStructure.mova) || [];
+
+  // Header + status badge + actions
+  let html = `<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px;">
+    <h2 style="margin: 0;">MOVA-koulutus</h2>
+    <div style="display: flex; gap: 8px; flex-wrap: wrap;">`;
+  if (student.mova_status === 'completed') {
+    html += `<span style="background: #28a745; color: #fff; padding: 6px 14px; border-radius: 4px;">Valmistunut${student.mova_graduated_at ? ' · ' + formatDate(student.mova_graduated_at) : ''}</span>`;
+    html += `<button class="btn btn-secondary" onclick="downloadCertificate(${studentId}, 'mova')">Lataa MOVA-todistus</button>`;
+  } else {
+    html += `<span style="background: #fd7e14; color: #fff; padding: 6px 14px; border-radius: 4px;">Kesken</span>`;
+    if (isInstructor) {
+      html += `<button class="btn btn-small btn-secondary" onclick="cancelMovaTraining(${studentId})">Peruuta MOVA-koulutus</button>`;
+    }
+  }
+  html += `</div></div>`;
+
+  // Readiness banner — only if not yet completed
+  if (student.mova_status !== 'completed') {
+    if (readiness.ready && isInstructor) {
+      html += `<div style="background: #d1ecf1; border: 1px solid #0c5460; border-radius: 6px; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px;">
+        <div><strong>Valmis valmistumaan MOVA:lle</strong> · kaikki vaatimukset täyttyvät</div>
+        <button class="btn btn-primary" onclick="markMovaGraduated(${studentId})">Merkitse MOVA valmiiksi</button>
+      </div>`;
+    } else if (!readiness.ready) {
+      const missingHtml = readiness.missing.map(m => `<li>${escapeHtml(m)}</li>`).join('');
+      html += `<div style="background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 14px 18px; margin-bottom: 16px;">
+        <strong>MOVA-valmistumiseen tarvitaan vielä:</strong>
+        <ul style="margin: 6px 0 0 18px; padding: 0;">${missingHtml}</ul>
+      </div>`;
+    }
+  }
+
+  // Progress
+  html += `<h3>Edistyminen</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
+      <div>${createProgressBar(stats.motor_flights || 0, 7, 'Moottorilentoja')}</div>
+      <div style="display: flex; align-items: center;">
+        ${stats.mova_exam_passed ? `<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">MOVA-koe suoritettu${stats.mova_exam_date ? ' ' + formatDate(stats.mova_exam_date) : ''}</span>` : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">MOVA-koe suorittamatta</span>'}
+        ${isInstructor ? `<button class="btn btn-small btn-secondary" style="margin-left: 8px;" onclick="showMovaExamModal(${studentId})">Muokkaa</button>` : ''}
+      </div>
+    </div>`;
+
+  // MOVA theory list
+  const completedSet = new Set();
+  const theoryRes = await api('GET', `/api/students/${studentId}/theory`);
+  if (theoryRes && theoryRes.completions) theoryRes.completions.forEach(k => completedSet.add(k));
+  const totalMova = movaSections.reduce((s, sec) => s + sec.topics.length, 0);
+  const completedMova = movaSections.reduce((s, sec) => s + sec.topics.filter(t => completedSet.has(t.key)).length, 0);
+
+  html += `<h3>MOVA-teoriat (${completedMova}/${totalMova})</h3>`;
+  movaSections.forEach(section => {
+    const doneInSection = section.topics.filter(t => completedSet.has(t.key)).length;
+    html += `<div style="background: #f8f9fa; border-radius: 6px; padding: 12px; margin-bottom: 8px;">
+      <div style="font-weight: bold; margin-bottom: 6px;">${escapeHtml(section.title)} (${doneInSection}/${section.topics.length})</div>`;
+    section.topics.forEach(topic => {
+      const done = completedSet.has(topic.key);
+      html += `<div style="padding: 4px 0; display: flex; align-items: center; gap: 8px;">
+        ${isInstructor
+          ? `<input type="checkbox" ${done ? 'checked' : ''} onchange="toggleTheoryCompletion(${studentId}, '${topic.key}', this.checked)">`
+          : `<span style="color: ${done ? '#28a745' : '#999'}; width: 16px;">${done ? '✓' : '○'}</span>`}
+        <span style="color: ${done ? '#000' : '#666'};">${escapeHtml(topic.title)}</span>
+        ${topic.duration_minutes ? `<span style="color: #999; font-size: 0.85em; margin-left: auto;">${topic.duration_minutes} min</span>` : ''}
+      </div>`;
+    });
+    html += `</div>`;
+  });
+
+  // Motor flights summary
+  html += `<h3 style="margin-top: 24px;">Moottorilennot (${motorFlights.length})</h3>`;
+  if (motorFlights.length === 0) {
+    html += `<p style="color: #999;">Ei moottorilentoja vielä. Lisää moottorilento Lennot-välilehdellä valitsemalla tyypiksi "Moottori".</p>`;
+  } else {
+    html += `<div style="overflow-x: auto;"><table style="width: 100%; border-collapse: collapse;">
+      <thead><tr style="background: #f8f9fa; text-align: left;">
+        <th style="padding: 8px;">Päivä</th>
+        <th style="padding: 8px;">Paikka</th>
+        <th style="padding: 8px;">Lentoja</th>
+        <th style="padding: 8px;">Tarkistuslento</th>
+        <th style="padding: 8px;">Muistiinpanot</th>
+      </tr></thead><tbody>`;
+    motorFlights.forEach(f => {
+      html += `<tr style="border-bottom: 1px solid #dee2e6;">
+        <td style="padding: 8px;">${escapeHtml(formatDate(f.date))}</td>
+        <td style="padding: 8px;">${escapeHtml(f.site_name || '-')}</td>
+        <td style="padding: 8px;">${f.flight_count}</td>
+        <td style="padding: 8px;">${f.is_approval_flight ? '✓' : ''}</td>
+        <td style="padding: 8px;">${escapeHtml(f.notes || '')}</td>
+      </tr>`;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  container.innerHTML = html;
+}
+
+async function startMovaTraining(studentId) {
+  if (!confirm('Aloitetaanko MOVA-koulutus tälle oppilaalle? Tämä avaa MOVA-välilehden täydet toiminnot.')) return;
+  const result = await api('POST', `/api/students/${studentId}/mova/start`);
+  if (result) {
+    showSuccess('MOVA-koulutus aloitettu');
+    renderStudentDetail(studentId);
+  }
+}
+
+async function cancelMovaTraining(studentId) {
+  if (!confirm('Peruutetaanko MOVA-koulutus? Mahdolliset moottorilennot ja MOVA-teoriasuoritukset eivät häviä, mutta MOVA-välilehti palaa "ei aloitettu" -tilaan.')) return;
+  const result = await api('POST', `/api/students/${studentId}/mova/cancel`);
+  if (result) {
+    showSuccess('MOVA-koulutus peruutettu');
+    renderStudentDetail(studentId);
+  }
+}
+
+async function markMovaGraduated(studentId) {
+  const student = await api('GET', `/api/students/${studentId}`);
+  if (!student) return;
+  if (!confirm(`Merkitäänkö ${student.name} valmistuneeksi MOVA-pilotiksi? Tämä tallentaa MOVA-valmistumispäivän ja avaa MOVA-todistuksen lataamisen.`)) return;
+  const result = await api('PUT', `/api/students/${studentId}`, { mova_status: 'completed' });
+  if (!result) return;
+  showSuccess('Onnittelut! MOVA-koulutus merkitty valmiiksi.');
+  const html = `
+    <p>MOVA-koulutus on nyt merkitty valmiiksi. Haluatko ladata MOVA-todistuksen?</p>
+    <p style="font-size: 0.9em; color: #666;">Voit ladata todistuksen myöhemmin MOVA-välilehdeltä.</p>
+    <div style="margin-top: 16px; text-align: right;">
+      <button class="btn btn-secondary" onclick="hideModal(); renderStudentDetail(${studentId})">Sulje</button>
+      <button class="btn btn-primary" onclick="hideModal(); downloadCertificate(${studentId}, 'mova'); renderStudentDetail(${studentId})">Lataa MOVA-todistus</button>
+    </div>
+  `;
+  showModal('MOVA-todistus', html);
+}
+
+function showMovaExamModal(studentId) {
+  api('GET', `/api/students/${studentId}`).then(student => {
+    if (!student) return;
+    const html = `
+      <form onsubmit="handleSaveMovaExam(event, ${studentId})" style="padding: 8px 4px;">
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label><input type="checkbox" id="mova-exam-passed" ${student.mova_exam_passed ? 'checked' : ''} onchange="document.getElementById('mova-exam-date').disabled = !this.checked"> MOVA-koe suoritettu</label>
+        </div>
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label>MOVA-kokeen suorituspäivä</label>
+          <input type="date" id="mova-exam-date" value="${student.mova_exam_date || ''}" ${student.mova_exam_passed ? '' : 'disabled'} style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        <div style="margin-top: 20px; text-align: right;">
+          <button type="button" class="btn btn-secondary" onclick="hideModal()">Peruuta</button>
+          <button type="submit" class="btn btn-primary">Tallenna</button>
+        </div>
+      </form>
+    `;
+    showModal('MOVA-koe', html);
+  });
+}
+
+async function handleSaveMovaExam(event, studentId) {
+  event.preventDefault();
+  const passed = $('mova-exam-passed').checked;
+  const date = passed ? ($('mova-exam-date').value || null) : null;
+  const result = await api('PUT', `/api/students/${studentId}`, {
+    mova_exam_passed: passed,
+    mova_exam_date: date
+  });
+  if (result) {
+    hideModal();
+    showSuccess('MOVA-koe päivitetty');
+    renderStudentDetail(studentId);
+  }
+}
+
 function loadNotesTab(studentId, student) {
   let html = `
     <h2>Oppilaan muistiinpanot</h2>
@@ -1759,6 +1972,7 @@ function showFlightModal(studentId) {
         <div style="display: flex; gap: 20px; margin-top: 4px;">
           <label><input type="radio" name="flight_type" value="low"> Matala</label>
           <label><input type="radio" name="flight_type" value="high" checked> Korkea</label>
+          <label><input type="radio" name="flight_type" value="motor"> Moottori</label>
         </div>
       </div>
       <div class="form-group" style="margin-bottom: 12px;">
