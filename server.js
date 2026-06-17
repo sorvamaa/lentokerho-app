@@ -817,10 +817,16 @@ app.get('/api/students', requireAuth, requireInstructor, async (req, res) => {
   const db = getDb();
   const user = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
 
-  let query = 'SELECT id, username, name, email, phone, status, pp2_exam_passed, pp2_exam_date, course_started, student_notes, created_at, club_id FROM users WHERE role = ?';
+  let query = 'SELECT id, username, name, email, phone, status, pp2_exam_passed, pp2_exam_date, mova_status, course_started, student_notes, created_at, club_id FROM users WHERE role = ?';
   const params = ['student'];
 
-  if (status !== 'all') {
+  // 'ongoing' = any course in progress (basic OR MOVA);
+  // 'completed' = no course in progress (PP2 done AND MOVA either not started or done).
+  if (status === 'ongoing') {
+    query += " AND (status = 'ongoing' OR mova_status = 'ongoing')";
+  } else if (status === 'completed') {
+    query += " AND status = 'completed' AND (mova_status IS NULL OR mova_status = 'completed')";
+  } else if (status !== 'all') {
     query += ' AND status = ?';
     params.push(status);
   }

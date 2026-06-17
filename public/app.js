@@ -754,17 +754,22 @@ async function renderStudentList() {
 
   if (students.length > 0) {
     students.forEach(student => {
+      const movaBadge = student.mova_status === 'ongoing'
+        ? '<span style="background: #fd7e14; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; margin-left: 4px;">MOVA kesken</span>'
+        : student.mova_status === 'completed'
+          ? '<span style="background: #28a745; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; margin-left: 4px;">MOVA</span>'
+          : '';
       html += `
         <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; cursor: pointer; transition: box-shadow 0.2s;" onclick="window.location.hash='#student/${student.id}'" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.15)'" onmouseout="this.style.boxShadow='none'">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; flex-wrap: wrap;">
             <h3 style="margin: 0;">${escapeHtml(student.name)}</h3>
-            ${getStatusBadge(student.status)}
+            <div>${getStatusBadge(student.status)}${movaBadge}</div>
           </div>
           <p style="margin: 4px 0; color: #666;"><strong>Aloitettu:</strong> ${formatDate(student.course_started)}</p>
           <p style="margin: 4px 0; color: #666;"><strong>Sähköposti:</strong> ${escapeHtml(student.email || '')}</p>
           <div style="margin-top: 10px; font-size: 0.9em; color: #555;">
             <span>Matalia: ${student.low_flights || 0}/5</span> |
-            <span>Korkeita: ${student.high_flights || 0}/40</span>
+            <span>Korkeita: ${(student.high_flights || 0) + (student.motor_flights || 0)}/40</span>${student.mova_status ? ` | <span>Moottorilennot: ${student.motor_flights || 0}/7</span>` : ''}
           </div>
         </div>
       `;
