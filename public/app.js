@@ -1807,7 +1807,14 @@ async function loadMovaTab(studentId, student) {
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 24px;">
       <div>${createProgressBar(stats.motor_flights || 0, 7, 'Moottorilentoja')}</div>
       <div style="display: flex; align-items: center;">
-        ${stats.mova_exam_passed ? `<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">MOVA-koe suoritettu${stats.mova_exam_date ? ' ' + formatDate(stats.mova_exam_date) : ''}</span>` : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">MOVA-koe suorittamatta</span>'}
+        ${stats.has_motor_approval ? '<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">MOVA-tarkastuslento suoritettu</span>' : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">MOVA-tarkastuslento puuttuu</span>'}
+      </div>
+      <div style="display: flex; align-items: center;">
+        ${stats.pp4_exam_passed ? `<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">PP4-tentti suoritettu${stats.pp4_exam_date ? ' ' + formatDate(stats.pp4_exam_date) : ''}</span>` : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">PP4-tentti suorittamatta</span>'}
+        ${isInstructor ? `<button class="btn btn-small btn-secondary" style="margin-left: 8px;" onclick="showPp4ExamModal(${studentId})">Muokkaa</button>` : ''}
+      </div>
+      <div style="display: flex; align-items: center;">
+        ${stats.mova_exam_passed ? `<span style="background: #28a745; color: #fff; padding: 6px 12px; border-radius: 4px;">MOVA-tentti suoritettu${stats.mova_exam_date ? ' ' + formatDate(stats.mova_exam_date) : ''}</span>` : '<span style="background: #6c757d; color: #fff; padding: 6px 12px; border-radius: 4px;">MOVA-tentti suorittamatta</span>'}
         ${isInstructor ? `<button class="btn btn-small btn-secondary" style="margin-left: 8px;" onclick="showMovaExamModal(${studentId})">Muokkaa</button>` : ''}
       </div>
     </div>`;
@@ -1907,10 +1914,10 @@ function showMovaExamModal(studentId) {
     const html = `
       <form onsubmit="handleSaveMovaExam(event, ${studentId})" style="padding: 8px 4px;">
         <div class="form-group" style="margin-bottom: 12px;">
-          <label><input type="checkbox" id="mova-exam-passed" ${student.mova_exam_passed ? 'checked' : ''} onchange="document.getElementById('mova-exam-date').disabled = !this.checked"> MOVA-koe suoritettu</label>
+          <label><input type="checkbox" id="mova-exam-passed" ${student.mova_exam_passed ? 'checked' : ''} onchange="document.getElementById('mova-exam-date').disabled = !this.checked"> MOVA-tentti suoritettu</label>
         </div>
         <div class="form-group" style="margin-bottom: 12px;">
-          <label>MOVA-kokeen suorituspäivä</label>
+          <label>MOVA-tentin suorituspäivä</label>
           <input type="date" id="mova-exam-date" value="${student.mova_exam_date || ''}" ${student.mova_exam_passed ? '' : 'disabled'} style="width: 100%; padding: 8px; box-sizing: border-box;">
         </div>
         <div style="margin-top: 20px; text-align: right;">
@@ -1919,8 +1926,46 @@ function showMovaExamModal(studentId) {
         </div>
       </form>
     `;
-    showModal('MOVA-koe', html);
+    showModal('MOVA-tentti', html);
   });
+}
+
+function showPp4ExamModal(studentId) {
+  api('GET', `/api/students/${studentId}`).then(student => {
+    if (!student) return;
+    const html = `
+      <form onsubmit="handleSavePp4Exam(event, ${studentId})" style="padding: 8px 4px;">
+        <p style="color: #666; font-size: 0.9em; margin: 0 0 12px;">PP4-tentti (matkalentotentti) ei vaadita PP2-kelpoisuuteen, mutta on edellytys MOVA-kelpoisuudelle. Teoriat on käsitelty jo PP2-koulutuksessa.</p>
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label><input type="checkbox" id="pp4-exam-passed" ${student.pp4_exam_passed ? 'checked' : ''} onchange="document.getElementById('pp4-exam-date').disabled = !this.checked"> PP4-tentti suoritettu</label>
+        </div>
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label>PP4-tentin suorituspäivä</label>
+          <input type="date" id="pp4-exam-date" value="${student.pp4_exam_date || ''}" ${student.pp4_exam_passed ? '' : 'disabled'} style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        <div style="margin-top: 20px; text-align: right;">
+          <button type="button" class="btn btn-secondary" onclick="hideModal()">Peruuta</button>
+          <button type="submit" class="btn btn-primary">Tallenna</button>
+        </div>
+      </form>
+    `;
+    showModal('PP4-tentti (matkalentotentti)', html);
+  });
+}
+
+async function handleSavePp4Exam(event, studentId) {
+  event.preventDefault();
+  const passed = $('pp4-exam-passed').checked;
+  const date = passed ? ($('pp4-exam-date').value || null) : null;
+  const result = await api('PUT', `/api/students/${studentId}`, {
+    pp4_exam_passed: passed,
+    pp4_exam_date: date
+  });
+  if (result) {
+    hideModal();
+    showSuccess('PP4-tentti päivitetty');
+    renderStudentDetail(studentId);
+  }
 }
 
 async function handleSaveMovaExam(event, studentId) {

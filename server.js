@@ -656,6 +656,10 @@ const checkGraduationReadiness = async (studentId) => {
 
 // Helper: check whether a student meets MOVA graduation requirements.
 // PP2 must be completed first (status = 'completed').
+// PP4 exam (matkalentotentti) is required for MOVA even though theories
+// were covered in PP2.
+// MOVA tarkkari (motor approval flight) is required regardless of how
+// many basic-course tarkkareita the student has.
 const checkMovaReadiness = async (studentId) => {
   const db = getDb();
   const stats = await getStudentStats(studentId);
@@ -670,8 +674,14 @@ const checkMovaReadiness = async (studentId) => {
   if (stats.motor_flights < GRAD_MOTOR_FLIGHTS_REQUIRED) {
     missing.push(`${GRAD_MOTOR_FLIGHTS_REQUIRED - stats.motor_flights} moottorilentoa`);
   }
+  if (!stats.has_motor_approval) {
+    missing.push('MOVA-tarkastuslento');
+  }
+  if (!stats.pp4_exam_passed) {
+    missing.push('PP4-tentti (matkalentotentti)');
+  }
   if (!stats.mova_exam_passed) {
-    missing.push('MOVA-koe');
+    missing.push('MOVA-tentti');
   }
   if (stats.theory_mova < totalMovaTopics) {
     missing.push(`${totalMovaTopics - stats.theory_mova} MOVA-teoria-aihetta`);
@@ -683,6 +693,8 @@ const checkMovaReadiness = async (studentId) => {
     progress: {
       motor_flights: stats.motor_flights,
       motor_flights_required: GRAD_MOTOR_FLIGHTS_REQUIRED,
+      has_motor_approval: !!stats.has_motor_approval,
+      pp4_exam_passed: !!stats.pp4_exam_passed,
       mova_exam_passed: !!stats.mova_exam_passed,
       theory_mova_completed: stats.theory_mova,
       theory_mova_total: totalMovaTopics,
@@ -745,9 +757,14 @@ const getStudentStats = async (studentId) => {
     `SELECT date FROM flights WHERE student_id = ? AND is_approval_flight = 1${approvalFilter} ORDER BY date DESC LIMIT 1`
   ).get(studentId);
 
-  // PP2 + MOVA exam status
+  // PP2 + PP4 + MOVA exam status
   const examRow = await db.prepare(
-    'SELECT pp2_exam_passed, pp2_exam_date, mova_status, mova_exam_passed, mova_exam_date, mova_graduated_at FROM users WHERE id = ?'
+    'SELECT pp2_exam_passed, pp2_exam_date, pp4_exam_passed, pp4_exam_date, mova_status, mova_started_at, mova_exam_passed, mova_exam_date, mova_graduated_at FROM users WHERE id = ?'
+  ).get(studentId);
+
+  // Motor approval flight (MOVA tarkkari) — required for MOVA graduation
+  const motorApproval = await db.prepare(
+    `SELECT COUNT(*) as count FROM flights WHERE student_id = ? AND flight_type = 'motor' AND is_approval_flight = 1${approvalFilter}`
   ).get(studentId);
 
   // Theory counts
@@ -776,10 +793,14 @@ const getStudentStats = async (studentId) => {
     approval_flight_date: approvalFlight ? approvalFlight.date : null,
     pp2_exam_passed: examRow ? examRow.pp2_exam_passed : 0,
     pp2_exam_date: examRow ? examRow.pp2_exam_date : null,
+    pp4_exam_passed: examRow ? examRow.pp4_exam_passed : 0,
+    pp4_exam_date: examRow ? examRow.pp4_exam_date : null,
     mova_status: examRow ? examRow.mova_status : null,
+    mova_started_at: examRow ? examRow.mova_started_at : null,
     mova_exam_passed: examRow ? examRow.mova_exam_passed : 0,
     mova_exam_date: examRow ? examRow.mova_exam_date : null,
     mova_graduated_at: examRow ? examRow.mova_graduated_at : null,
+    has_motor_approval: parseInt(motorApproval.count) > 0,
     theory_pp1: parseInt(theoryPp1.count),
     theory_pp2: parseInt(theoryPp2.count),
     theory_mova: parseInt(theoryMova.count)
@@ -869,7 +890,7 @@ app.get('/api/students/:id', requireAuth, async (req, res) => {
 
   // Never return password_hash — use explicit column list
   const student = await db.prepare(
-    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, pp2_exam_date, mova_status, mova_exam_passed, mova_exam_date, mova_graduated_at, course_started, student_notes, graduated_at, created_at FROM users WHERE id = ? AND role = ?'
+    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, pp2_exam_date, pp4_exam_passed, pp4_exam_date, mova_status, mova_started_at, mova_exam_passed, mova_exam_date, mova_graduated_at, course_started, student_notes, graduated_at, created_at FROM users WHERE id = ? AND role = ?'
   ).get(id, 'student');
 
   if (!student) {
@@ -885,6 +906,7 @@ app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) =>
   const { id } = req.params;
   const {
     name, email, phone, status, pp2_exam_passed, pp2_exam_date,
+    pp4_exam_passed, pp4_exam_date,
     mova_status, mova_exam_passed, mova_exam_date,
     course_started, student_notes
   } = req.body;
@@ -942,6 +964,8 @@ app.put('/api/students/:id', requireAuth, requireInstructor, async (req, res) =>
   }
   if (pp2_exam_passed !== undefined) { updates.push('pp2_exam_passed = ?'); values.push(pp2_exam_passed ? 1 : 0); }
   if (pp2_exam_date !== undefined) { updates.push('pp2_exam_date = ?'); values.push(pp2_exam_date || null); }
+  if (pp4_exam_passed !== undefined) { updates.push('pp4_exam_passed = ?'); values.push(pp4_exam_passed ? 1 : 0); }
+  if (pp4_exam_date !== undefined) { updates.push('pp4_exam_date = ?'); values.push(pp4_exam_date || null); }
   if (mova_status !== undefined) {
     updates.push('mova_status = ?'); values.push(mova_status);
     if (mova_status === 'completed' && !student.mova_graduated_at) {
@@ -3214,6 +3238,8 @@ initDb().then(async () => {
     const db = getDb();
     const pool = db.getPool();
     // users: MOVA progress fields
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pp4_exam_passed INTEGER DEFAULT 0`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS pp4_exam_date TEXT DEFAULT NULL`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_status TEXT DEFAULT NULL`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_started_at TIMESTAMP DEFAULT NULL`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_exam_passed INTEGER DEFAULT 0`);

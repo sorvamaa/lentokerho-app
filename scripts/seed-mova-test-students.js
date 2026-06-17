@@ -101,17 +101,19 @@ const SCENARIOS = [
         const studentRes = await client.query(
           `INSERT INTO users (
              username, password_hash, role, name, email, phone, status, course_started,
-             pp2_exam_passed, pp2_exam_date, mova_status, mova_started_at, mova_exam_passed, mova_exam_date,
+             pp2_exam_passed, pp2_exam_date, pp4_exam_passed, pp4_exam_date,
+             mova_status, mova_started_at, mova_exam_passed, mova_exam_date,
              club_id, must_change_password, graduated_at
            )
            VALUES (
              $1, $2, 'student', $3, $4, $5, $6, $7,
-             1, $8, 'ongoing', CURRENT_TIMESTAMP - INTERVAL '${sc.movaStartedDaysAgo} days', 1, $9,
-             $10, 1, ${pp2GraduatedAt}
+             1, $8, 1, $9,
+             'ongoing', CURRENT_TIMESTAMP - INTERVAL '${sc.movaStartedDaysAgo} days', 1, $10,
+             $11, 1, ${pp2GraduatedAt}
            ) RETURNING id`,
           [
             sc.username, passwordHash, sc.fullName, sc.email, '040-0000000', pp2Status, '2025-08-15',
-            '2026-02-20', '2026-05-01', clubId
+            '2026-02-20', '2026-04-15', '2026-05-01', clubId
           ]
         );
         const studentId = studentRes.rows[0].id;
@@ -142,11 +144,16 @@ const SCENARIOS = [
         }
 
         // Motor flights for MOVA requirement (7 flights on 7 distinct days)
-        for (const day of sc.motorFlightsOnDays) {
+        // Last motor flight is marked is_approval_flight=1 — the MOVA tarkkari
+        const lastIdx = sc.motorFlightsOnDays.length - 1;
+        for (let i = 0; i < sc.motorFlightsOnDays.length; i++) {
+          const day = sc.motorFlightsOnDays[i];
+          const isApproval = i === lastIdx ? 1 : 0;
+          const note = isApproval ? 'MOVA-tarkastuslento' : 'Moottorilento';
           await client.query(
             `INSERT INTO flights (student_id, date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight, added_by, approved, approved_by, approved_at)
-             VALUES ($1, $2, 1, 'motor', $3, '', 'Moottorilento', 'Testidata', 0, $4, 1, $4, CURRENT_TIMESTAMP)`,
-            [studentId, day, siteId, instructorId]
+             VALUES ($1, $2, 1, 'motor', $3, '', $4, 'Testidata', $5, $6, 1, $6, CURRENT_TIMESTAMP)`,
+            [studentId, day, siteId, note, isApproval, instructorId]
           );
         }
 
