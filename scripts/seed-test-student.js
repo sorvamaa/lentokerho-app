@@ -77,23 +77,37 @@ function generatePassword(length = 8) {
     const studentId = studentRes.rows[0].id;
     console.log("Luotu testioppilas 'testi' (Testi Pilotti) id=" + studentId);
 
-    // Insert flights: 5 low + 40 high
+    // Insert flights: 5 low + 40 high spread across 8 distinct high-flight days
     await client.query(
       `INSERT INTO flights (student_id, date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight, added_by, approved, approved_by, approved_at)
        VALUES ($1, $2, $3, 'low', $4, 'Auringonpaiste, tuuli 3 m/s', 'Maakäsittelyä, perusjarrutus', 'Testidata', 0, $5, 1, $5, CURRENT_TIMESTAMP)`,
       [studentId, '2026-02-15', 5, siteId, instructorId]
     );
-    await client.query(
-      `INSERT INTO flights (student_id, date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight, added_by, approved, approved_by, approved_at)
-       VALUES ($1, $2, $3, 'high', $4, 'Pilvinen, tuuli 4 m/s', 'Suunnatut käännökset', 'Testidata', 0, $5, 1, $5, CURRENT_TIMESTAMP)`,
-      [studentId, '2026-04-15', 39, siteId, instructorId]
-    );
+
+    // 8 high-flight days × 5 flights each = 40 high flights (last day has the approval flight)
+    const highDays = [
+      { date: '2026-03-10', count: 5 },
+      { date: '2026-03-22', count: 5 },
+      { date: '2026-04-05', count: 5 },
+      { date: '2026-04-15', count: 5 },
+      { date: '2026-04-22', count: 5 },
+      { date: '2026-04-28', count: 5 },
+      { date: '2026-05-08', count: 5 },
+      { date: '2026-05-15', count: 4 } // 4 regular + 1 approval below = 5 high on this day
+    ];
+    for (const day of highDays) {
+      await client.query(
+        `INSERT INTO flights (student_id, date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight, added_by, approved, approved_by, approved_at)
+         VALUES ($1, $2, $3, 'high', $4, 'Pilvinen, tuuli 4 m/s', 'Suunnatut käännökset', 'Testidata', 0, $5, 1, $5, CURRENT_TIMESTAMP)`,
+        [studentId, day.date, day.count, siteId, instructorId]
+      );
+    }
     await client.query(
       `INSERT INTO flights (student_id, date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight, added_by, approved, approved_by, approved_at)
        VALUES ($1, $2, $3, 'high', $4, 'Heikkoa termiikkiä', 'Tarkistuslento', 'Tarkistuslento ok', 1, $5, 1, $5, CURRENT_TIMESTAMP)`,
-      [studentId, '2026-05-01', 1, siteId, instructorId]
+      [studentId, '2026-05-15', 1, siteId, instructorId]
     );
-    console.log('Lisätty lennot: 5 matalaa + 40 korkeaa (joista 1 tarkistuslento)');
+    console.log('Lisätty lennot: 5 matalaa + 40 korkeaa (8 eri päivänä, joista 1 tarkistuslento)');
 
     // Insert ALL theory completions
     const topicsRes = await client.query('SELECT key FROM theory_topics_def');

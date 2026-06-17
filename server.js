@@ -604,6 +604,7 @@ app.post('/api/admin/reset-password', requireAuth, requireInstructor, async (req
 // Graduation requirements for PP2 pilot
 const GRAD_LOW_FLIGHTS_REQUIRED = 5;
 const GRAD_HIGH_FLIGHTS_REQUIRED = 40;
+const GRAD_HIGH_DAYS_REQUIRED = 7;
 
 // Helper: check whether a student meets all graduation requirements
 const checkGraduationReadiness = async (studentId) => {
@@ -620,6 +621,9 @@ const checkGraduationReadiness = async (studentId) => {
   if (stats.high_flights < GRAD_HIGH_FLIGHTS_REQUIRED) {
     missing.push(`${GRAD_HIGH_FLIGHTS_REQUIRED - stats.high_flights} korkeaa lentoa`);
   }
+  if (stats.high_days < GRAD_HIGH_DAYS_REQUIRED) {
+    missing.push(`${GRAD_HIGH_DAYS_REQUIRED - stats.high_days} korkeaa lentopäivää`);
+  }
   if (!stats.pp2_exam_passed) {
     missing.push('PP2-koe');
   }
@@ -635,6 +639,8 @@ const checkGraduationReadiness = async (studentId) => {
       low_flights_required: GRAD_LOW_FLIGHTS_REQUIRED,
       high_flights: stats.high_flights,
       high_flights_required: GRAD_HIGH_FLIGHTS_REQUIRED,
+      high_days: stats.high_days,
+      high_days_required: GRAD_HIGH_DAYS_REQUIRED,
       pp2_exam_passed: !!stats.pp2_exam_passed,
       theory_completed: completedTopics,
       theory_total: totalTopics

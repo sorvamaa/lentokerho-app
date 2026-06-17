@@ -85,19 +85,15 @@ function drawCover(doc, student, club, stats, instructors, chief, theoryTotalMin
        .dash(2, { space: 2 }).strokeColor('#ddd').lineWidth(0.5).stroke().undash();
   });
 
-  // Signatures
+  // Signature: only the chief instructor (koulutuspäällikkö), centered
   const sigTop = 600;
-  const sigLeft = 70;
-  const sigGap = 250;
-  ['Päätoiminen ohjaaja', 'Koulutuspäällikkö'].forEach((role, idx) => {
-    const x = sigLeft + idx * sigGap;
-    doc.moveTo(x, sigTop).lineTo(x + 180, sigTop).strokeColor('#666').lineWidth(0.5).stroke();
-    doc.font('Helvetica').fontSize(9).fillColor('#888').text(role, x, sigTop + 6, { width: 180 });
-    const person = idx === 0
-      ? (instructors[0] ? instructors[0].name : '')
-      : (chief ? chief.name : '');
-    doc.font('Helvetica').fontSize(11).fillColor('#000').text(person || '', x, sigTop + 20, { width: 180 });
-  });
+  const sigWidth = 220;
+  const sigX = (595 - sigWidth) / 2;
+  doc.moveTo(sigX, sigTop).lineTo(sigX + sigWidth, sigTop).strokeColor('#666').lineWidth(0.5).stroke();
+  doc.font('Helvetica').fontSize(9).fillColor('#888')
+     .text('Koulutuspäällikkö', sigX, sigTop + 6, { width: sigWidth, align: 'center' });
+  doc.font('Helvetica').fontSize(11).fillColor('#000')
+     .text(chief ? chief.name : '', sigX, sigTop + 20, { width: sigWidth, align: 'center' });
 
   // Place + date
   const place = club.name ? club.name.replace(/^.*?(Lentokerho|Ry|ry).*$/, '') : '';
