@@ -110,17 +110,20 @@
     <li><a href="#8-ohjaajien-hallinta">8. Ohjaajien hallinta</a></li>
     <li><a href="#9-kerhon-asetukset">9. Kerhon asetukset (koulutuspäällikkö)</a></li>
     <li><a href="#10-lentojen-hyvaksynta">10. Lentojen hyväksyntä</a></li>
-    <li><a href="#11-lentopaivakira-tulostus">11. Lentopäiväkirjan tulostus</a></li>
-    <li><a href="#12-tietosuoja">12. Tietosuoja ja GDPR</a></li>
-    <li><a href="#13-kaytto-mobiilissa">13. Käyttö mobiilissa</a></li>
-    <li><a href="#14-vinkkeja">14. Vinkkejä</a></li>
-    <li><a href="#15-ongelmatilanteet">15. Ongelmatilanteet</a></li>
+    <li><a href="#11-mova-koulutus">11. MOVA-koulutus</a></li>
+    <li><a href="#12-valmistuminen">12. Valmistuminen ja kurssitodistus</a></li>
+    <li><a href="#13-lentopaivakira-tulostus">13. Lentopäiväkirjan tulostus</a></li>
+    <li><a href="#14-tietosuoja">14. Tietosuoja ja GDPR</a></li>
+    <li><a href="#15-kaytto-mobiilissa">15. Käyttö mobiilissa</a></li>
+    <li><a href="#16-omat-tiedot">16. Omat tiedot</a></li>
+    <li><a href="#17-vinkkeja">17. Vinkkejä</a></li>
+    <li><a href="#18-ongelmatilanteet">18. Ongelmatilanteet</a></li>
   </ul>
 </nav>
 
 <h1 id="tervetuloa">Tervetuloa</h1>
 
-<p>PilottiPolku on lentokerhon koulutusjärjestelmä, jossa ohjaaja voi seurata oppilaidensa edistymistä, kirjata lentoja, hallita oppitunteja ja merkitä teoria-aiheita suoritetuiksi. Tämä ohje kertoo, miten pääset alkuun ja mistä löydät tärkeimmät toiminnot.</p>
+<p>PilottiPolku on lentokerhon koulutusjärjestelmä, jossa ohjaaja voi seurata oppilaidensa edistymistä, kirjata lentoja, hallita oppitunteja ja merkitä teoria-aiheita suoritetuiksi. PP2-peruskoulutuksen lisäksi sovelluksessa on oma MOVA-osio moottoroidun varjoliitimen koulutusta varten, ja kurssin päätteeksi oppilaalle voidaan luoda allekirjoitettava kurssitodistus. Tämä ohje kertoo, miten pääset alkuun ja mistä löydät tärkeimmät toiminnot.</p>
 
 <p>Sovellus toimii selaimessa osoitteessa https://pilottipolku.fi. Kaikki näkymät ovat suomeksi ja mukautuvat myös puhelimen ruudulle.</p>
 
@@ -146,7 +149,9 @@
 
 <h1 id="3-oppilaat">3. Oppilaat</h1>
 
-<p>Vasemman sivuvalikon &quot;Oppilaat&quot;-linkistä aukeaa kerhosi oppilaiden listanäkymä. Jokaisesta oppilaasta näet statuksen, teorian PP1- ja PP2-edistymispalkit, matalien ja korkeiden lentojen määrän sekä tarkistuslennon ja PP2-kokeen tilan. Kun oppilaalla on kaikki valmista, kortin oikeaan yläkulmaan ilmestyy vihreä piste.</p>
+<p>Vasemman sivuvalikon &quot;Oppilaat&quot;-linkistä aukeaa kerhosi oppilaiden listanäkymä. Jokaisesta oppilaasta näet statuksen, teorian PP1- ja PP2-edistymispalkit, matalien (X/5) ja korkeiden (Y/40) lentojen määrän sekä tarkistuslennon ja PP2-kokeen tilan. Jos oppilas on aloittanut MOVA-koulutuksen, kortilla näkyy lisäksi oranssi &quot;MOVA kesken&quot; -merkki ja oma MOVA-osio (moottorilennot, MOVA-teoriat, MOVA-tarkkari, PP4-tentti, MOVA-tentti). Kun oppilaalla on kaikki valmista — sekä PP2 että mahdollinen MOVA — kortin oikeaan yläkulmaan ilmestyy vihreä piste.</p>
+
+<p>Suodatin &quot;Kesken&quot; näyttää oppilaat, joilla on jokin kurssi käynnissä: joko PP2 kesken tai PP2 valmis ja MOVA-koulutus käynnissä. &quot;Valmis&quot;-suodatin näyttää vain oppilaat, joilla kaikki koulutukset on saatettu loppuun.</p>
 
 <figure>
   <img src="img/instructor-02-oppilaat.png" alt="Kuva 3. Kerhon oppilaat -näkymä edistymispalkkeineen." style="max-width: 640px;">
@@ -162,7 +167,9 @@
 
 <h1 id="4-lennon-kirjaaminen">4. Lennon kirjaaminen</h1>
 
-<p>Oppilaan tietonäkymässä on &quot;+ Lisää lento&quot; -painike. Painikkeen takaa aukeaa lomake, johon syötetään päivä, lentopaikka, tyyppi (matala/korkea), lentojen määrä, sää, harjoitukset ja muistiinpanot. Jos lento on tarkistuslento, ruksi &quot;Tarkistuslento&quot;-valintaruutu — päivämäärä tallentuu oppilaan tarkistuslentotietoon.</p>
+<p>Oppilaan tietonäkymässä on &quot;+ Lisää lento&quot; -painike. Painikkeen takaa aukeaa lomake, johon syötetään päivä, lentopaikka, tyyppi (matala / korkea / moottori), lentojen määrä, sää, harjoitukset ja muistiinpanot. <strong>Moottori</strong>-tyyppi on tarkoitettu MOVA-koulutuksen moottorilennoille; nämä lasketaan sekä 40 korkean lennon vaatimukseen että 7 moottorilennon MOVA-vaatimukseen.</p>
+
+<p>Jos lento on tarkistuslento, ruksi &quot;Tarkistuslento&quot;-valintaruutu — päivämäärä tallentuu oppilaan tarkistuslentotietoon. Huomaa että tarkkari on nyt pakollinen PP2-valmistumiselle, ja MOVA-kelpoisuus vaatii erikseen yhden <em>moottoritarkkarin</em>. Sama lento voi täyttää molemmat vaatimukset, jos se on tyypiltään &quot;moottori&quot; ja merkitty tarkistuslennoksi.</p>
 
 <figure>
   <img src="img/instructor-04-lennon-lisays.png" alt="Kuva 5. Lennon lisäyslomake." style="max-width: 640px;">
@@ -249,13 +256,70 @@
 
 <p>Jos lentojen hyväksyntä ei ole käytössä, kaikki lennot lasketaan suoraan edistymiseen kuten ennenkin.</p>
 
-<h1 id="11-lentopaivakira-tulostus">11. Lentopäiväkirjan tulostus</h1>
+<h1 id="11-mova-koulutus">11. MOVA-koulutus</h1>
+
+<p>MOVA tarkoittaa moottoroidun B-ryhmän varjoliitimen koulutusta. Oppilas voi tehdä MOVAn osana peruskurssia (jolloin moottorilennot lasketaan myös 40 korkean lennon vaatimukseen), tai erillisenä lisäkoulutuksena PP2-valmistumisen jälkeen.</p>
+
+<h2>Aloitus</h2>
+
+<p>MOVA-koulutus käynnistetään oppilaan profiilin <strong>MOVA</strong>-välilehdeltä &quot;Aloita MOVA-koulutus&quot; -painikkeella. Tämän jälkeen välilehdellä näkyvät:</p>
+
+<ul>
+  <li>Edistymispalkit: <strong>Moottorilennot X/7</strong> ja <strong>MOVA-teoria Y/24</strong>.</li>
+  <li>Tilarivit: <strong>MOVA-tarkastuslento</strong> (✓/–), <strong>PP4-tentti</strong> (matkalentotentti) ja <strong>MOVA-tentti</strong>. PP4- ja MOVA-tentin tilat muokataan välilehdellä olevilla &quot;Muokkaa&quot;-painikkeilla.</li>
+  <li>MOVA-teoria-aiheet — sama merkintätapa kuin PP1/PP2-puolella.</li>
+  <li>Lista oppilaan moottorilennoista.</li>
+</ul>
+
+<h2>Vaatimukset MOVA-kelpoisuuteen</h2>
+
+<ul>
+  <li>PP2-peruskoulutus suoritettu (status &quot;Valmis&quot;).</li>
+  <li>Vähintään 7 moottorilentoa. Lennot voivat olla samana päivänä — moottorilennoilla ei ole erillistä päivävaatimusta.</li>
+  <li>MOVA-tarkastuslento eli yksi moottorilento, joka on merkitty tarkistuslennoksi.</li>
+  <li>PP4-tentti (matkalentotentti). Teoria on käsitelty PP2-koulutuksessa, mutta tentti suoritetaan erikseen.</li>
+  <li>MOVA-tentti.</li>
+  <li>Kaikki MOVA-teoria-aiheet (7 sektiota: Aerodynamiikka, Sääoppi, Liidin ja moottori, Säännöt ja määräykset, Lennonvalmistelu, Lentäminen, Ilmailufysiologia).</li>
+</ul>
+
+<h2>Peruutus</h2>
+
+<p>Jos MOVA-koulutus on aloitettu vahingossa, sen voi peruuttaa &quot;Peruuta MOVA-koulutus&quot; -painikkeella, kunhan se ei ole vielä valmistunut. Mahdolliset moottorilennot ja MOVA-teoriasuoritukset jäävät kantaan.</p>
+
+<h1 id="12-valmistuminen">12. Valmistuminen ja kurssitodistus</h1>
+
+<h2>PP2-valmistuminen</h2>
+
+<p>Oppilas voidaan merkitä PP2-valmistuneeksi, kun kaikki seuraavat ehdot täyttyvät:</p>
+
+<ul>
+  <li>5 matalaa lentoa</li>
+  <li>40 korkeaa lentoa (moottorilennot lasketaan mukaan)</li>
+  <li>7 eri korkealla lentopäivää (myös moottorilentopäivät kelpaavat)</li>
+  <li>Tarkastuslento suoritettu</li>
+  <li>PP2-koe suoritettu</li>
+  <li>Kaikki PP1- ja PP2-teoria-aiheet suoritettu</li>
+</ul>
+
+<p>Oppilaan profiilin yläosassa oleva valmistumis-banneri näyttää sinisenä <strong>&quot;Valmis valmistumaan&quot;</strong> kun kaikki ehdot täyttyvät, sekä <strong>&quot;Merkitse valmiiksi&quot;</strong> -painikkeen. Jos jokin puuttuu, banneri listaa puuttuvat kohdat (esim. &quot;3 korkeaa lentopäivää, PP2-koe&quot;).</p>
+
+<h2>MOVA-valmistuminen</h2>
+
+<p>Vastaavasti MOVA-välilehdellä on oma valmistumisbanneri ja <strong>&quot;Merkitse MOVA valmiiksi&quot;</strong> -painike, joka aktivoituu kun MOVA-vaatimukset täyttyvät.</p>
+
+<h2>Kurssitodistus</h2>
+
+<p>Valmistumisen jälkeen pää-banneriin ilmestyy <strong>&quot;Lataa kurssitodistus&quot;</strong> -painike. Jos sekä PP2 että MOVA on suoritettu, painikkeita on kolme: <strong>Lataa yhdistetty todistus</strong>, <strong>PP2-todistus</strong> ja <strong>MOVA-todistus</strong>. Oletuksena tarjotaan yhdistettyä todistusta, jos PP2 ja MOVA ovat valmistuneet alle 30 päivän sisällä toisistaan.</p>
+
+<p>Todistus on PDF-tiedosto, joka sisältää kansilehden (kerhon logo, oppilaan nimi, valmistumistiedot, koulutuspäällikön allekirjoitus), teoriayhteenvedon, lentolistan ja oppilaan liitetiedostot (esim. terveydentilavakuutus) yhdistettynä samaan PDF:ään.</p>
+
+<h1 id="13-lentopaivakira-tulostus">13. Lentopäiväkirjan tulostus</h1>
 
 <p>Oppilaan lennot-välilehdellä on &quot;Tulosta lentopäiväkirja&quot; -painike (näkyy kun oppilaalla on lentoja). Painike avaa uuden selaimen välilehden, jossa on tulostusystävällinen sivu kaikista lennoista taulukkona. Sivun yläosassa näkyy kerhon logo (jos asetettu) ja kerhon nimi, oppilaan tiedot sekä yhteenveto lentojen määristä.</p>
 
 <p>Voit tulostaa sivun paperille tai tallentaa sen PDF-tiedostona selaimen &quot;Tallenna PDF:nä&quot; -toiminnolla (Ctrl+P → Tallenna PDF:nä).</p>
 
-<h1 id="12-tietosuoja">12. Tietosuoja ja GDPR</h1>
+<h1 id="14-tietosuoja">14. Tietosuoja ja GDPR</h1>
 
 <p>PilottiPolku noudattaa EU:n yleistä tietosuoja-asetusta (GDPR). Sovelluksen tietosuojaseloste löytyy sivuvalikon alaosasta ja kirjautumissivulta.</p>
 
@@ -282,7 +346,7 @@
   <li>On peruuttamaton toimenpide</li>
 </ul>
 
-<h1 id="13-kaytto-mobiilissa">13. Käyttö mobiilissa</h1>
+<h1 id="15-kaytto-mobiilissa">15. Käyttö mobiilissa</h1>
 
 <p>Kun käytät sovellusta puhelimella, sivuvalikko piiloutuu ja vasempaan yläkulmaan ilmestyy hampurilaispainike (☰). Paina sitä avataksesi valikon. Oppilaat-näkymässä kortit muuttuvat pystysuuntaisiksi ja lentolista pinoutuu helposti luettaviksi korteiksi.</p>
 
@@ -296,19 +360,28 @@
   <figcaption>Kuva 10. Hampurilaispainikkeesta avautuva sivuvalikko.</figcaption>
 </figure>
 
-<h1 id="14-vinkkeja">14. Vinkkejä</h1>
+<h1 id="16-omat-tiedot">16. Omat tiedot</h1>
+
+<p>Voit muokata omaa nimeäsi, sähköpostiosoitettasi ja puhelinnumeroasi <strong>klikkaamalla omaa nimeäsi sivun yläoikealla</strong>. Aukeaa lyhyt muokkauslomake. Tämä on hyvä päivittää heti ensimmäisellä kerralla — erityisesti jos sinulle on alun perin asetettu <code>@example.com</code>-muotoinen testiosoite, niin &quot;Unohtuiko salasana?&quot; -toiminto saadaan toimimaan oikealle osoitteellesi. Käyttäjätunnusta ei voi muuttaa tästä; sen vaihtoon ota yhteyttä pääkäyttäjään.</p>
+
+<p>Salasanan vaihtoon on oma erillinen toimintonsa.</p>
+
+<h1 id="17-vinkkeja">17. Vinkkejä</h1>
 
 <ul>
   <li>Käytä &quot;Kesken&quot;-suodatinta oppilasnäkymässä nähdäksesi vain aktiiviset oppilaat.</li>
-  <li>Oppilaan status &quot;Valmis&quot; vaatii suoritetun PP2-kokeen — jos et pääse tallentamaan, tarkista että PP2-koe on merkitty suoritetuksi.</li>
+  <li>Oppilaan PP2-status &quot;Valmis&quot; vaatii 5 matalaa + 40 korkeaa (motorit lasketaan) + 7 korkeaa lentopäivää + tarkistuslennon + PP2-kokeen + kaikki PP1/PP2-teoriat. Jos jokin puuttuu, valmistumisbanneri listaa mitä.</li>
   <li>Tarkistuslennon ja PP2-kokeen suorituspäivät näkyvät oppilaan statuksen vieressä ja oppilaan detail-näkymässä.</li>
+  <li>MOVA-oppilaan kohdalla muista että MOVA-tarkkari on oma vaatimuksensa — moottorilento, joka on merkitty tarkistuslennoksi. Sama lento kelpaa myös PP2-tarkkariksi.</li>
+  <li>PP4-tentti suoritetaan vasta MOVAa varten, ei PP2-valmistumiselle. Voit merkitä sen suoritetuksi MOVA-välilehden &quot;Muokkaa&quot;-napilla.</li>
+  <li>Kun sekä PP2 että MOVA ovat valmiit lähekkäin, oletustodistus on yhdistetty PP2 + MOVA. Tarvittaessa voit ladata myös pelkän PP2:n tai pelkän MOVAn.</li>
   <li>Liian monta epäonnistunutta kirjautumisyritystä lukitsee IP-osoitteen 15 minuutiksi — odota tai käytä toista verkkoa.</li>
   <li>Koulutuspäällikön roolin siirto on peruuttamaton — uusi koulutuspäällikkö voi siirtää roolin takaisin tarvittaessa.</li>
   <li>Lataa kerhon logo asetuksista — se näkyy automaattisesti myös lentopäiväkirjan tulosteissa.</li>
   <li>Oppituntien tiedot avautuvat klikkaamalla riviä — sieltä näet käsitellyt aiheet ja paikalla olleet oppilaat.</li>
 </ul>
 
-<h1 id="15-ongelmatilanteet">15. Ongelmatilanteet</h1>
+<h1 id="18-ongelmatilanteet">18. Ongelmatilanteet</h1>
 
 <p>Jos kirjautuminen ei onnistu, varmista käyttäjänimen kirjoitusasu (ääkköset huomioiden). Jos sivu ei reagoi, päivitä selain (F5 / Ctrl+R). Pidempiaikaisissa ongelmissa ota yhteyttä kerhon pääkäyttäjään tai sovelluksen ylläpitoon.</p>
 
