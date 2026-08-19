@@ -87,6 +87,16 @@ const apiLimiter = rateLimit({
   legacyHeaders: false
 });
 
+// Rate limiting — forgot-password (5 requests per hour per IP to prevent email spam)
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  message: { error: 'Liian monta salasananvaihtopyyntöä. Yritä uudelleen tunnin kuluttua.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip
+});
+
 app.use('/api/', apiLimiter);
 
 // Middleware
@@ -112,6 +122,8 @@ function serveIndex(req, res) {
 }
 app.get('/', serveIndex);
 app.get('/index.html', serveIndex);
+app.get('/forgot-password', serveIndex);
+app.get('/reset-password', serveIndex);
 app.use(express.static('public'));
 
 // ============================================================================
@@ -525,8 +537,14 @@ app.post('/api/accept-privacy', requireAuth, async (req, res) => {
   res.json({ success: true });
 });
 
+// SHA-256 is deterministic → can look up token directly (unlike bcrypt).
+// A 32-byte random token has 256 bits of entropy, so SHA-256 is appropriate here.
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
 // POST /api/forgot-password
-app.post('/api/forgot-password', async (req, res) => {
+app.post('/api/forgot-password', forgotPasswordLimiter, async (req, res) => {
   const { email } = req.body;
 
   if (!email) {
@@ -539,15 +557,19 @@ app.post('/api/forgot-password', async (req, res) => {
   // Always return 200 to avoid revealing if email exists
   if (user) {
     const token = crypto.randomBytes(32).toString('hex');
-    const hashedToken = bcrypt.hashSync(token, 10);
+    const tokenHash = hashResetToken(token);
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
     await db.prepare(
       'INSERT INTO password_resets (user_id, token_hash, expires_at, used) VALUES (?, ?, ?, 0)'
-    ).run(user.id, hashedToken, expiresAt);
+    ).run(user.id, tokenHash, expiresAt);
 
     const resetUrl = `${process.env.APP_URL || 'http://localhost:3000'}/reset-password?token=${token}`;
-    sendPasswordReset(email, resetUrl);
+    try {
+      await sendPasswordReset(email, resetUrl);
+    } catch (e) {
+      console.error('Failed to send reset email:', e.message);
+    }
 
     await logAction(user.id, 'FORGOT_PASSWORD', 'user', user.id, {});
   }
@@ -569,18 +591,19 @@ app.post('/api/reset-password', async (req, res) => {
 
   const db = getDb();
   const now = new Date();
+  const tokenHash = hashResetToken(token);
 
   const reset = await db.prepare(
-    'SELECT id, user_id, token_hash FROM password_resets WHERE used = 0 AND expires_at > ? ORDER BY created_at DESC LIMIT 1'
-  ).get(now);
+    'SELECT id, user_id FROM password_resets WHERE token_hash = ? AND used = 0 AND expires_at > ?'
+  ).get(tokenHash, now);
 
-  if (!reset || !bcrypt.compareSync(token, reset.token_hash)) {
+  if (!reset) {
     return res.status(400).json({ error: 'Invalid or expired reset token' });
   }
 
   const hashedPassword = bcrypt.hashSync(newPassword, 12);
 
-  await db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashedPassword, reset.user_id);
+  await db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?').run(hashedPassword, reset.user_id);
   await db.prepare('UPDATE password_resets SET used = 1 WHERE id = ?').run(reset.id);
 
   await logAction(reset.user_id, 'RESET_PASSWORD', 'user', reset.user_id, {});
@@ -696,12 +719,14 @@ const checkGraduationReadiness = async (studentId) => {
 const checkMovaReadiness = async (studentId) => {
   const db = getDb();
   const stats = await getStudentStats(studentId);
-  const student = await db.prepare('SELECT status FROM users WHERE id = ?').get(studentId);
+  const student = await db.prepare('SELECT status, is_mova_only FROM users WHERE id = ?').get(studentId);
   const totalRow = await db.prepare("SELECT COUNT(*) AS c FROM theory_topics_def td JOIN theory_sections ts ON ts.id = td.section_id WHERE ts.level = 'mova'").get();
   const totalMovaTopics = parseInt(totalRow.c);
 
   const missing = [];
-  if (!student || student.status !== 'completed') {
+  const isMovaOnly = student && student.is_mova_only;
+  // MOVA-only students are already licensed pilots — PP2 done elsewhere.
+  if (!isMovaOnly && (!student || student.status !== 'completed')) {
     missing.push('PP2-peruskoulutus valmistunut');
   }
   if (stats.motor_flights < GRAD_MOTOR_FLIGHTS_REQUIRED) {
@@ -731,7 +756,8 @@ const checkMovaReadiness = async (studentId) => {
       mova_exam_passed: !!stats.mova_exam_passed,
       theory_mova_completed: stats.theory_mova,
       theory_mova_total: totalMovaTopics,
-      pp2_completed: student && student.status === 'completed'
+      pp2_completed: !!isMovaOnly || (student && student.status === 'completed'),
+      is_mova_only: !!isMovaOnly
     }
   };
 };
@@ -792,7 +818,7 @@ const getStudentStats = async (studentId) => {
 
   // PP2 + PP4 + MOVA exam status
   const examRow = await db.prepare(
-    'SELECT pp2_exam_passed, pp2_exam_date, pp4_exam_passed, pp4_exam_date, mova_status, mova_started_at, mova_exam_passed, mova_exam_date, mova_graduated_at FROM users WHERE id = ?'
+    'SELECT pp2_exam_passed, pp2_exam_date, pp4_exam_passed, pp4_exam_date, mova_status, mova_started_at, mova_exam_passed, mova_exam_date, mova_graduated_at, is_mova_only FROM users WHERE id = ?'
   ).get(studentId);
 
   // Motor approval flight (MOVA tarkkari) — required for MOVA graduation
@@ -833,6 +859,7 @@ const getStudentStats = async (studentId) => {
     mova_exam_passed: examRow ? examRow.mova_exam_passed : 0,
     mova_exam_date: examRow ? examRow.mova_exam_date : null,
     mova_graduated_at: examRow ? examRow.mova_graduated_at : null,
+    is_mova_only: examRow ? !!examRow.is_mova_only : false,
     has_motor_approval: parseInt(motorApproval.count) > 0,
     theory_pp1: parseInt(theoryPp1.count),
     theory_pp2: parseInt(theoryPp2.count),
@@ -846,7 +873,7 @@ app.get('/api/students', requireAuth, requireInstructor, async (req, res) => {
   const db = getDb();
   const user = await db.prepare('SELECT role, club_id FROM users WHERE id = ?').get(req.session.userId);
 
-  let query = 'SELECT id, username, name, email, phone, status, pp2_exam_passed, pp2_exam_date, mova_status, course_started, student_notes, created_at, club_id FROM users WHERE role = ?';
+  let query = 'SELECT id, username, name, email, phone, status, pp2_exam_passed, pp2_exam_date, mova_status, is_mova_only, course_started, student_notes, created_at, club_id FROM users WHERE role = ?';
   const params = ['student'];
 
   // 'ongoing' = any course in progress (basic OR MOVA);
@@ -884,7 +911,7 @@ app.get('/api/students', requireAuth, requireInstructor, async (req, res) => {
 
 // POST /api/students
 app.post('/api/students', requireAuth, requireInstructor, async (req, res) => {
-  const { name, email, phone, username, password, course_started, status } = req.body;
+  const { name, email, phone, username, password, course_started, status, is_mova_only } = req.body;
 
   if (!name || !email || !username || !password) {
     return res.status(400).json({ error: 'Name, email, username, and password required' });
@@ -903,12 +930,24 @@ app.post('/api/students', requireAuth, requireInstructor, async (req, res) => {
 
   const hashedPassword = bcrypt.hashSync(password, 12);
   const instructorClubId = await getUserClubId(req);
+  const startedDate = course_started || new Date().toISOString().split('T')[0];
+
+  // MOVA-only: student is an already-licensed pilot doing only motorized training.
+  // We mark PP2 status='completed' (peruskurssi tehty muualla) and immediately start MOVA.
+  const movaOnly = !!is_mova_only;
+  const finalStatus = movaOnly ? 'completed' : (status || 'ongoing');
+  const movaStatus = movaOnly ? 'ongoing' : null;
+  const movaStartedAt = movaOnly ? new Date() : null;
 
   const userResult = await db.prepare(
-    'INSERT INTO users (username, email, name, password_hash, phone, role, status, pp2_exam_passed, course_started, student_notes, club_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
-  ).run(username, email, name, hashedPassword, phone || null, 'student', status || 'ongoing', 0, course_started || new Date().toISOString().split('T')[0], '', instructorClubId);
+    `INSERT INTO users
+       (username, email, name, password_hash, phone, role, status, pp2_exam_passed,
+        course_started, student_notes, club_id, is_mova_only, mova_status, mova_started_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(username, email, name, hashedPassword, phone || null, 'student', finalStatus, 0,
+    startedDate, '', instructorClubId, movaOnly ? 1 : 0, movaStatus, movaStartedAt);
 
-  await logAction(req.session.userId, 'CREATE', 'student', userResult.lastInsertRowid, { name, email });
+  await logAction(req.session.userId, 'CREATE', 'student', userResult.lastInsertRowid, { name, email, is_mova_only: movaOnly });
 
   const student = await db.prepare('SELECT * FROM users WHERE id = ?').get(userResult.lastInsertRowid);
   const stats = await getStudentStats(student.id);
@@ -929,7 +968,7 @@ app.get('/api/students/:id', requireAuth, async (req, res) => {
 
   // Never return password_hash — use explicit column list
   const student = await db.prepare(
-    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, pp2_exam_date, pp4_exam_passed, pp4_exam_date, mova_status, mova_started_at, mova_exam_passed, mova_exam_date, mova_graduated_at, course_started, student_notes, graduated_at, created_at FROM users WHERE id = ? AND role = ?'
+    'SELECT id, username, email, name, role, phone, club_id, status, pp2_exam_passed, pp2_exam_date, pp4_exam_passed, pp4_exam_date, mova_status, mova_started_at, mova_exam_passed, mova_exam_date, mova_graduated_at, is_mova_only, course_started, student_notes, graduated_at, created_at FROM users WHERE id = ? AND role = ?'
   ).get(id, 'student');
 
   if (!student) {
@@ -1131,16 +1170,19 @@ app.get('/api/students/:id/certificate.pdf', requireAuth, async (req, res) => {
   }
 
   const student = await db.prepare(
-    'SELECT id, username, name, email, phone, club_id, status, pp2_exam_passed, pp2_exam_date, mova_status, mova_started_at, mova_exam_passed, mova_exam_date, mova_graduated_at, course_started, graduated_at FROM users WHERE id = ? AND role = ?'
+    'SELECT id, username, name, email, phone, club_id, status, pp2_exam_passed, pp2_exam_date, mova_status, mova_started_at, mova_exam_passed, mova_exam_date, mova_graduated_at, is_mova_only, course_started, graduated_at FROM users WHERE id = ? AND role = ?'
   ).get(id, 'student');
   if (!student) return res.status(404).json({ error: 'Student not found' });
 
   // Determine certificate type. Default: combined if both completed close together, basic if only PP2, mova if only MOVA.
   const basicDone = student.status === 'completed';
   const movaDone = student.mova_status === 'completed';
+  const isMovaOnly = !!student.is_mova_only;
   let type = (req.query.type || '').toLowerCase();
   if (!['basic', 'mova', 'combined'].includes(type)) {
-    if (basicDone && movaDone) {
+    if (isMovaOnly) {
+      type = 'mova';
+    } else if (basicDone && movaDone) {
       // Default to combined if PP2 and MOVA were completed within 30 days of each other
       const basicAt = student.graduated_at ? new Date(student.graduated_at).getTime() : 0;
       const movaAt = student.mova_graduated_at ? new Date(student.mova_graduated_at).getTime() : 0;
@@ -1153,6 +1195,11 @@ app.get('/api/students/:id/certificate.pdf', requireAuth, async (req, res) => {
     } else {
       return res.status(400).json({ error: 'Kurssitodistus voidaan ladata vasta kun oppilas on merkitty valmiiksi.' });
     }
+  }
+
+  // MOVA-only students can only get the MOVA certificate — no PP2 data exists for them.
+  if (isMovaOnly && type !== 'mova') {
+    return res.status(400).json({ error: 'Vain MOVA-todistus on saatavilla MOVA-only-oppilaalle.' });
   }
 
   // Validate prerequisites for the chosen type
@@ -2587,14 +2634,14 @@ app.get('/api/dashboard', requireAuth, requireInstructor, async (req, res) => {
     clubParams.push(user.club_id);
   }
 
-  // Count stats
+  // Count stats — "active" includes MOVA in progress (PP2-done students doing MOVA, and MOVA-only students).
   const activeStudents = await db.prepare(
-    `SELECT COUNT(*) as count FROM users u WHERE u.role = ? AND u.status = ?${clubWhere}`
-  ).get('student', 'ongoing', ...clubParams);
+    `SELECT COUNT(*) as count FROM users u WHERE u.role = ? AND (u.status = 'ongoing' OR u.mova_status = 'ongoing')${clubWhere}`
+  ).get('student', ...clubParams);
 
   const graduatedStudents = await db.prepare(
-    `SELECT COUNT(*) as count FROM users u WHERE u.role = ? AND u.status = ?${clubWhere}`
-  ).get('student', 'completed', ...clubParams);
+    `SELECT COUNT(*) as count FROM users u WHERE u.role = ? AND u.status = 'completed' AND (u.mova_status IS NULL OR u.mova_status = 'completed')${clubWhere}`
+  ).get('student', ...clubParams);
 
   const totalFlights = await db.prepare(
     `SELECT COALESCE(SUM(f.flight_count), 0) as count FROM flights f JOIN users u ON f.student_id = u.id WHERE 1=1${clubWhere}`
@@ -2604,12 +2651,12 @@ app.get('/api/dashboard', requireAuth, requireInstructor, async (req, res) => {
     `SELECT COUNT(*) as count FROM lessons l JOIN users u ON l.instructor_id = u.id WHERE 1=1${clubWhere}`
   ).get(...clubParams);
 
-  // Active students with stats and last_flight_date
+  // Active students with stats and last_flight_date — mirrors activeStudents count
   const students = await db.prepare(`
     SELECT u.id, u.username, u.name, u.email, u.phone, u.role, u.status,
            u.pp2_exam_passed, u.pp2_exam_date, u.course_started, u.student_notes, u.club_id, u.created_at
     FROM users u
-    WHERE u.role = 'student' AND u.status = 'ongoing'${clubWhere}
+    WHERE u.role = 'student' AND (u.status = 'ongoing' OR u.mova_status = 'ongoing')${clubWhere}
     ORDER BY u.name ASC
   `).all(...clubParams);
 
@@ -2629,13 +2676,13 @@ app.get('/api/dashboard', requireAuth, requireInstructor, async (req, res) => {
     LIMIT 10
   `).all(...clubParams);
 
-  // Inactive warnings (students with no flight in 30+ days)
+  // Inactive warnings (students with no flight in 30+ days) — includes MOVA-only + MOVA-in-progress students
   const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const inactiveWarnings = await db.prepare(`
     SELECT u.id, u.name, u.email, u.status,
       (SELECT MAX(date) FROM flights WHERE student_id = u.id) as last_flight_date
     FROM users u
-    WHERE u.role = 'student' AND u.status = 'ongoing'${clubWhere}
+    WHERE u.role = 'student' AND (u.status = 'ongoing' OR u.mova_status = 'ongoing')${clubWhere}
     AND (
       (SELECT MAX(date) FROM flights WHERE student_id = u.id) IS NULL
       OR (SELECT MAX(date) FROM flights WHERE student_id = u.id) < ?
@@ -3287,6 +3334,7 @@ initDb().then(async () => {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_exam_passed INTEGER DEFAULT 0`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_exam_date TEXT DEFAULT NULL`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_graduated_at TIMESTAMP DEFAULT NULL`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_mova_only INTEGER DEFAULT 0`);
     // equipment: optional motor fields
     await pool.query(`ALTER TABLE equipment ADD COLUMN IF NOT EXISTS motor_manufacturer TEXT DEFAULT ''`);
     await pool.query(`ALTER TABLE equipment ADD COLUMN IF NOT EXISTS motor_model TEXT DEFAULT ''`);

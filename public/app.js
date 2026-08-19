@@ -300,6 +300,14 @@ async function init() {
   $('login-view').style.display = 'none';
   $('app-view').style.display = 'none';
 
+  // Handle password reset link from email: /reset-password?token=xxx
+  const urlParams = new URLSearchParams(window.location.search);
+  const resetToken = urlParams.get('token');
+  if (window.location.pathname === '/reset-password' && resetToken) {
+    showResetPasswordView(resetToken);
+    return;
+  }
+
   const user = await api('GET', '/api/me');
 
   if (user && user.id) {
@@ -315,6 +323,38 @@ async function init() {
       navigate();
     }
   } else {
+    showLoginView();
+  }
+}
+
+function showResetPasswordView(token) {
+  setRandomLoginBackground();
+  $('login-view').style.display = 'none';
+  $('app-view').style.display = 'none';
+  $('loading-view').style.display = 'none';
+  $('forgot-password-view').style.display = 'none';
+  $('reset-password-view').style.display = 'block';
+  $('header-right').hidden = true;
+  // Stash token on the form so submit handler can read it
+  const form = $('reset-password-form');
+  if (form) form.dataset.token = token;
+}
+
+async function handleResetSubmit() {
+  const form = $('reset-password-form');
+  const token = form?.dataset.token;
+  const newPassword = $('new-password').value;
+  const confirmPassword = $('confirm-password').value;
+
+  if (!token) { showError('Puuttuva palautuslinkin tunniste. Pyydä uusi palautusviesti.'); return; }
+  if (newPassword.length < 8) { showError('Salasanassa tulee olla vähintään 8 merkkiä.'); return; }
+  if (newPassword !== confirmPassword) { showError('Salasanat eivät täsmää.'); return; }
+
+  const result = await api('POST', '/api/reset-password', { token, newPassword });
+  if (result) {
+    showSuccess('Salasana vaihdettu. Voit nyt kirjautua uudella salasanalla.');
+    // Clean the ?token=... out of the URL so refresh doesn't retry
+    window.history.replaceState({}, '', '/');
     showLoginView();
   }
 }
@@ -807,22 +847,36 @@ async function renderStudentList() {
 
   if (students.length > 0) {
     students.forEach(student => {
-      const movaBadge = student.mova_status === 'ongoing'
-        ? '<span style="background: #fd7e14; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; margin-left: 4px;">MOVA kesken</span>'
-        : student.mova_status === 'completed'
-          ? '<span style="background: #28a745; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; margin-left: 4px;">MOVA</span>'
-          : '';
+      const movaOnly = !!student.is_mova_only;
+      let statusBadgesHtml;
+      if (movaOnly) {
+        // MOVA-only: hide PP2 status badge; show a dedicated tag + optional MOVA state
+        const movaState = student.mova_status === 'completed'
+          ? '<span style="background: #28a745; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; margin-left: 4px;">Valmis</span>'
+          : '<span style="background: #fd7e14; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; margin-left: 4px;">Kesken</span>';
+        statusBadgesHtml = `<span style="background: #343a40; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">Vain MOVA</span>${movaState}`;
+      } else {
+        const movaBadge = student.mova_status === 'ongoing'
+          ? '<span style="background: #fd7e14; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; margin-left: 4px;">MOVA kesken</span>'
+          : student.mova_status === 'completed'
+            ? '<span style="background: #28a745; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; margin-left: 4px;">MOVA</span>'
+            : '';
+        statusBadgesHtml = `${getStatusBadge(student.status)}${movaBadge}`;
+      }
+      const flightsLine = movaOnly
+        ? `<span>Moottorilennot: ${student.motor_flights || 0}/7</span>`
+        : `<span>Matalia: ${student.low_flights || 0}/5</span> |
+           <span>Korkeita: ${(student.high_flights || 0) + (student.motor_flights || 0)}/40</span>${student.mova_status ? ` | <span>Moottorilennot: ${student.motor_flights || 0}/7</span>` : ''}`;
       html += `
         <div style="border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; cursor: pointer; transition: box-shadow 0.2s;" onclick="window.location.hash='#student/${student.id}'" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.15)'" onmouseout="this.style.boxShadow='none'">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; gap: 8px; flex-wrap: wrap;">
             <h3 style="margin: 0;">${escapeHtml(student.name)}</h3>
-            <div>${getStatusBadge(student.status)}${movaBadge}</div>
+            <div>${statusBadgesHtml}</div>
           </div>
           <p style="margin: 4px 0; color: #666;"><strong>Aloitettu:</strong> ${formatDate(student.course_started)}</p>
           <p style="margin: 4px 0; color: #666;"><strong>Sähköposti:</strong> ${escapeHtml(student.email || '')}</p>
           <div style="margin-top: 10px; font-size: 0.9em; color: #555;">
-            <span>Matalia: ${student.low_flights || 0}/5</span> |
-            <span>Korkeita: ${(student.high_flights || 0) + (student.motor_flights || 0)}/40</span>${student.mova_status ? ` | <span>Moottorilennot: ${student.motor_flights || 0}/7</span>` : ''}
+            ${flightsLine}
           </div>
         </div>
       `;
@@ -935,7 +989,13 @@ async function renderClubStudentsProgress() {
       const motorApproval = !!s.has_motor_approval;
       const movaStarted = !!s.mova_status;
       const movaCompleted = s.mova_status === 'completed';
+      const isMovaOnly = !!s.is_mova_only;
 
+      const movaDone = motor >= MOTOR_TOTAL &&
+        motorApproval &&
+        pp4Exam &&
+        movaExam &&
+        theoryMova >= MOVA_TOTAL && MOVA_TOTAL > 0;
       const pp2Done =
         theoryPp1 >= PP1_TOTAL && PP1_TOTAL > 0 &&
         theoryPp2 >= PP2_TOTAL && PP2_TOTAL > 0 &&
@@ -943,14 +1003,9 @@ async function renderClubStudentsProgress() {
         high >= HIGH_TOTAL &&
         approval &&
         pp2Exam;
-      const movaDone = !movaStarted || (
-        motor >= MOTOR_TOTAL &&
-        motorApproval &&
-        pp4Exam &&
-        movaExam &&
-        theoryMova >= MOVA_TOTAL && MOVA_TOTAL > 0
-      );
-      const allDone = pp2Done && movaDone;
+      const allDone = isMovaOnly
+        ? movaDone
+        : (pp2Done && (!movaStarted || movaDone));
 
       const dot = `<span title="${allDone ? 'Kaikki valmista' : 'Kesken'}" style="display: inline-block; width: 14px; height: 14px; border-radius: 50%; background: ${allDone ? '#28a745' : '#adb5bd'}; border: 2px solid #fff; box-shadow: 0 0 0 1px #adb5bd;"></span>`;
 
@@ -958,14 +1013,23 @@ async function renderClubStudentsProgress() {
         ? '<span style="color: #28a745; font-weight: bold;">✓</span>'
         : '<span style="color: #adb5bd;">–</span>';
 
-      const movaBadge = movaCompleted
-        ? '<span style="background: #28a745; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">MOVA</span>'
-        : movaStarted
-          ? '<span style="background: #fd7e14; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">MOVA kesken</span>'
-          : '';
+      let badge;
+      if (isMovaOnly) {
+        const state = movaCompleted
+          ? '<span style="background: #28a745; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">Valmis</span>'
+          : '<span style="background: #fd7e14; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">Kesken</span>';
+        badge = `<span style="background: #343a40; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">Vain MOVA</span>${state}`;
+      } else {
+        const movaBadge = movaCompleted
+          ? '<span style="background: #28a745; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">MOVA</span>'
+          : movaStarted
+            ? '<span style="background: #fd7e14; color: #fff; padding: 2px 8px; border-radius: 4px; font-size: 0.85em;">MOVA kesken</span>'
+            : '';
+        badge = `${getStatusBadge(s.status)}${movaBadge}`;
+      }
 
-      const movaSection = movaStarted ? `
-        <div style="font-size: 0.85em; color: #333; font-weight: 600; margin-top: 12px; border-top: 1px dashed #dee2e6; padding-top: 10px;">MOVA</div>
+      const movaSection = (movaStarted || isMovaOnly) ? `
+        <div style="font-size: 0.85em; color: #333; font-weight: 600; margin-top: 12px;${isMovaOnly ? '' : ' border-top: 1px dashed #dee2e6; padding-top: 10px;'}">MOVA</div>
         ${progressBar(motor, MOTOR_TOTAL, 'Moottorilennot')}
         ${progressBar(theoryMova, MOVA_TOTAL, 'MOVA-teoria')}
         <div style="display: flex; gap: 14px; margin-top: 8px; font-size: 0.85em; color: #555; flex-wrap: wrap;">
@@ -975,25 +1039,29 @@ async function renderClubStudentsProgress() {
         </div>
       ` : '';
 
+      // MOVA-only students: show only MOVA section (no PP2 progress bars — they don't apply)
+      const pp2Section = isMovaOnly ? '' : `
+        <div style="font-size: 0.85em; color: #333; font-weight: 600; margin-top: 8px;">Teoria</div>
+        ${progressBar(theoryPp1, PP1_TOTAL, 'PP1')}
+        ${progressBar(theoryPp2, PP2_TOTAL, 'PP2')}
+        <div style="font-size: 0.85em; color: #333; font-weight: 600; margin-top: 10px;">Lennot</div>
+        ${progressBar(low, LOW_TOTAL, 'Matalat')}
+        ${progressBar(high, HIGH_TOTAL, 'Korkeat')}
+        <div style="display: flex; gap: 14px; margin-top: 10px; font-size: 0.85em; color: #555;">
+          <span>${checkMark(approval)} Tarkistuslento${approval && s.approval_flight_date ? ' (' + formatDate(s.approval_flight_date) + ')' : ''}</span>
+          <span>${checkMark(pp2Exam)} PP2-tentti${pp2Exam && s.pp2_exam_date ? ' (' + formatDate(s.pp2_exam_date) + ')' : ''}</span>
+        </div>
+      `;
+
       html += `
         <div style="position: relative; border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; cursor: pointer; background: #fff; transition: box-shadow 0.2s;" onclick="window.location.hash='#student/${s.id}'" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.15)'" onmouseout="this.style.boxShadow='none'">
           <div style="position: absolute; top: 12px; right: 12px;">${dot}</div>
           <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 6px; padding-right: 24px; flex-wrap: wrap;">
             <h3 style="margin: 0;">${escapeHtml(s.name)}</h3>
-            ${getStatusBadge(s.status)}
-            ${movaBadge}
+            ${badge}
           </div>
           <div style="font-size: 0.8em; color: #888; margin-bottom: 10px;">${escapeHtml(s.email || '')}</div>
-          <div style="font-size: 0.85em; color: #333; font-weight: 600; margin-top: 8px;">Teoria</div>
-          ${progressBar(theoryPp1, PP1_TOTAL, 'PP1')}
-          ${progressBar(theoryPp2, PP2_TOTAL, 'PP2')}
-          <div style="font-size: 0.85em; color: #333; font-weight: 600; margin-top: 10px;">Lennot</div>
-          ${progressBar(low, LOW_TOTAL, 'Matalat')}
-          ${progressBar(high, HIGH_TOTAL, 'Korkeat')}
-          <div style="display: flex; gap: 14px; margin-top: 10px; font-size: 0.85em; color: #555;">
-            <span>${checkMark(approval)} Tarkistuslento${approval && s.approval_flight_date ? ' (' + formatDate(s.approval_flight_date) + ')' : ''}</span>
-            <span>${checkMark(pp2Exam)} PP2-tentti${pp2Exam && s.pp2_exam_date ? ' (' + formatDate(s.pp2_exam_date) + ')' : ''}</span>
-          </div>
+          ${pp2Section}
           ${movaSection}
         </div>
       `;
@@ -1032,10 +1100,17 @@ function showAddStudentModal() {
         <input type="date" id="add-student-course-started" required style="width: 100%; padding: 8px; box-sizing: border-box;">
       </div>
       <div class="form-group" style="margin-bottom: 12px;">
-        <label>Status</label>
-        <select id="add-student-status" style="width: 100%; padding: 8px; box-sizing: border-box;">
-          <option value="ongoing">Kesken</option>
-        </select>
+        <label style="font-weight: 600;">Koulutustyyppi</label>
+        <div style="margin-top: 6px; padding: 10px; border: 1px solid #dee2e6; border-radius: 6px; background: #f8f9fa;">
+          <label style="display: block; margin-bottom: 8px; cursor: pointer;">
+            <input type="radio" name="add-student-track" value="full" checked style="margin-right: 6px;">
+            <strong>Peruskurssi</strong> — PP1 + PP2, mahdollisesti MOVA myöhemmin
+          </label>
+          <label style="display: block; cursor: pointer;">
+            <input type="radio" name="add-student-track" value="mova_only" style="margin-right: 6px;">
+            <strong>Vain MOVA</strong> — oppilas on jo lisensioitu pilotti, aloittaa suoraan MOVA-koulutuksen
+          </label>
+        </div>
       </div>
       <div style="margin-top: 20px; text-align: right;">
         <button type="button" class="btn btn-secondary" onclick="hideModal()">Peruuta</button>
@@ -1054,7 +1129,8 @@ async function handleAddStudent(event) {
   const username = $('add-student-username').value.trim();
   const password = $('add-student-password').value;
   const course_started = $('add-student-course-started').value;
-  const status = $('add-student-status').value;
+  const track = document.querySelector('input[name="add-student-track"]:checked')?.value || 'full';
+  const is_mova_only = track === 'mova_only';
 
   if (!name || !email || !username || !password || !course_started) {
     showError('Kaikki pakolliset kentät vaaditaan');
@@ -1065,10 +1141,10 @@ async function handleAddStudent(event) {
     return;
   }
 
-  const result = await api('POST', '/api/students', { name, email, phone, username, password, course_started, status });
+  const result = await api('POST', '/api/students', { name, email, phone, username, password, course_started, is_mova_only });
   if (result) {
     hideModal();
-    showSuccess('Oppilas lisätty');
+    showSuccess(is_mova_only ? 'MOVA-only-oppilas lisätty' : 'Oppilas lisätty');
     navigate();
   }
 }
@@ -1123,6 +1199,14 @@ async function renderStudentDetail(id) {
 
   const isInstructor = currentUser && (currentUser.role === 'instructor' || currentUser.role === 'admin');
   const isStudent = currentUser && currentUser.role === 'student';
+  const isMovaOnly = !!student.is_mova_only;
+
+  // MOVA-only students skip PP2 tabs. MOVA tab is the default active one for them.
+  const showPp2Tabs = !isMovaOnly;
+  const defaultTabId = isMovaOnly ? 'mova-tab' : 'flights-tab';
+  const headerBadge = isMovaOnly
+    ? '<span style="background: #343a40; color: #fff; padding: 4px 10px; border-radius: 4px; font-size: 0.85em;">Vain MOVA</span>'
+    : getStatusBadge(student.status);
 
   let html = `
     <div style="padding: 20px;">
@@ -1133,7 +1217,7 @@ async function renderStudentDetail(id) {
       <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px; margin-bottom: 20px;">
         <div>
           <h1 style="margin: 0 0 8px 0;">${escapeHtml(student.name)}</h1>
-          ${getStatusBadge(student.status)}
+          ${headerBadge}
         </div>
         <div style="text-align: right; color: #555;">
           <p style="margin: 2px 0;"><strong>Aloitettu:</strong> ${formatDate(student.course_started)}</p>
@@ -1154,34 +1238,44 @@ async function renderStudentDetail(id) {
         </div>
       </div>
 
+      ${isMovaOnly ? `
+        <div style="background: #e7f3ff; border: 1px solid #b8daff; border-radius: 6px; padding: 10px 14px; margin-bottom: 16px; color: #004085; font-size: 0.9em;">
+          <strong>Vain MOVA -oppilas:</strong> peruskurssi (PP1+PP2) on suoritettu muualla. Sovelluksessa seurataan vain MOVA-koulutusta.
+        </div>
+      ` : ''}
+
       <div id="graduation-banner" style="margin-bottom: 20px;"></div>
 
       <div class="tabs">
         <div style="display: flex; gap: 0; border-bottom: 2px solid #dee2e6; margin-bottom: 20px; flex-wrap: wrap;">
-          <button class="tab-btn active" data-tab="flights-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; border-bottom: 2px solid #2E6DA4; margin-bottom: -2px; font-weight: bold;">Lennot</button>
-          <button class="tab-btn" data-tab="theory-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Teoria</button>
+          <button class="tab-btn ${defaultTabId === 'mova-tab' ? 'active' : ''}" data-tab="mova-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; ${defaultTabId === 'mova-tab' ? 'border-bottom: 2px solid #2E6DA4; font-weight: bold;' : ''} margin-bottom: -2px;">MOVA</button>
+          <button class="tab-btn ${defaultTabId === 'flights-tab' ? 'active' : ''}" data-tab="flights-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; ${defaultTabId === 'flights-tab' ? 'border-bottom: 2px solid #2E6DA4; font-weight: bold;' : ''} margin-bottom: -2px;">Lennot</button>
+          ${showPp2Tabs ? `
+            <button class="tab-btn" data-tab="theory-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Teoria</button>
+          ` : ''}
           <button class="tab-btn" data-tab="equipment-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Kalusto</button>
           <button class="tab-btn" data-tab="attachments-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Liitteet</button>
-          <button class="tab-btn" data-tab="mova-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">MOVA</button>
           ${isInstructor ? `
             <button class="tab-btn" data-tab="notes-tab" style="padding: 10px 20px; border: none; background: none; cursor: pointer; margin-bottom: -2px;">Muistiinpanot</button>
           ` : ''}
         </div>
 
-        <div id="flights-tab" class="tab-content" style="display: block;">
+        <div id="mova-tab" class="tab-content" style="display: ${defaultTabId === 'mova-tab' ? 'block' : 'none'};">
+          <div id="mova-content">Ladataan...</div>
+        </div>
+        <div id="flights-tab" class="tab-content" style="display: ${defaultTabId === 'flights-tab' ? 'block' : 'none'};">
           <div id="flights-content">Ladataan...</div>
         </div>
-        <div id="theory-tab" class="tab-content" style="display: none;">
-          <div id="theory-content">Ladataan...</div>
-        </div>
+        ${showPp2Tabs ? `
+          <div id="theory-tab" class="tab-content" style="display: none;">
+            <div id="theory-content">Ladataan...</div>
+          </div>
+        ` : ''}
         <div id="equipment-tab" class="tab-content" style="display: none;">
           <div id="equipment-content">Ladataan...</div>
         </div>
         <div id="attachments-tab" class="tab-content" style="display: none;">
           <div id="attachments-content">Ladataan...</div>
-        </div>
-        <div id="mova-tab" class="tab-content" style="display: none;">
-          <div id="mova-content">Ladataan...</div>
         </div>
         ${isInstructor ? `
           <div id="notes-tab" class="tab-content" style="display: none;">
@@ -1213,7 +1307,7 @@ async function renderStudentDetail(id) {
 
   // Load tab contents
   loadFlightsTab(id);
-  loadTheoryTab(id);
+  if (showPp2Tabs) loadTheoryTab(id);
   loadEquipmentTab(id);
   loadAttachmentsTab(id);
   loadMovaTab(id, student);
@@ -1230,6 +1324,12 @@ async function renderGraduationBanner(studentId, student) {
 
   const isInstructor = currentUser && (currentUser.role === 'instructor' || currentUser.role === 'admin');
   const isOwnProfile = currentUser && currentUser.role === 'student' && currentUser.id == studentId;
+
+  // MOVA-only students have no PP2 graduation banner — the MOVA tab handles their status + cert.
+  if (student.is_mova_only) {
+    container.innerHTML = '';
+    return;
+  }
 
   if (student.status === 'completed') {
     const movaDone = student.mova_status === 'completed';
@@ -2263,20 +2363,8 @@ function showEditStudentModal(studentId) {
   // Load student data and show edit form
   api('GET', `/api/students/${studentId}`).then(student => {
     if (!student) return;
-    const html = `
-      <form onsubmit="handleEditStudent(event, ${studentId})">
-        <div class="form-group" style="margin-bottom: 12px;">
-          <label>Nimi *</label>
-          <input type="text" id="edit-student-name" value="${escapeHtml(student.name)}" required style="width: 100%; padding: 8px; box-sizing: border-box;">
-        </div>
-        <div class="form-group" style="margin-bottom: 12px;">
-          <label>Sähköposti *</label>
-          <input type="email" id="edit-student-email" value="${escapeHtml(student.email)}" required style="width: 100%; padding: 8px; box-sizing: border-box;">
-        </div>
-        <div class="form-group" style="margin-bottom: 12px;">
-          <label>Puhelin</label>
-          <input type="tel" id="edit-student-phone" value="${escapeHtml(student.phone || '')}" style="width: 100%; padding: 8px; box-sizing: border-box;">
-        </div>
+    const isMovaOnly = !!student.is_mova_only;
+    const pp2Fields = isMovaOnly ? '' : `
         <div class="form-group" style="margin-bottom: 12px;">
           <label>Status</label>
           <select id="edit-student-status" style="width: 100%; padding: 8px; box-sizing: border-box;">
@@ -2290,7 +2378,23 @@ function showEditStudentModal(studentId) {
         <div class="form-group" style="margin-bottom: 12px;">
           <label>PP2-kokeen suorituspäivä</label>
           <input type="date" id="edit-student-pp2-exam-date" value="${student.pp2_exam_date || ''}" ${student.pp2_exam_passed ? '' : 'disabled'} style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>`;
+    const html = `
+      <form onsubmit="handleEditStudent(event, ${studentId}, ${isMovaOnly})">
+        ${isMovaOnly ? `<p style="background: #e7f3ff; border: 1px solid #b8daff; border-radius: 6px; padding: 10px; color: #004085; font-size: 0.9em; margin: 0 0 12px 0;"><strong>Vain MOVA -oppilas</strong> — PP2-tiedot ovat piilotettuja koska peruskurssi on suoritettu muualla.</p>` : ''}
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label>Nimi *</label>
+          <input type="text" id="edit-student-name" value="${escapeHtml(student.name)}" required style="width: 100%; padding: 8px; box-sizing: border-box;">
         </div>
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label>Sähköposti *</label>
+          <input type="email" id="edit-student-email" value="${escapeHtml(student.email)}" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        <div class="form-group" style="margin-bottom: 12px;">
+          <label>Puhelin</label>
+          <input type="tel" id="edit-student-phone" value="${escapeHtml(student.phone || '')}" style="width: 100%; padding: 8px; box-sizing: border-box;">
+        </div>
+        ${pp2Fields}
         <div class="form-group" style="margin-bottom: 12px;">
           <label>Kurssin aloituspäivä</label>
           <input type="date" id="edit-student-course-started" value="${student.course_started || ''}" style="width: 100%; padding: 8px; box-sizing: border-box;">
@@ -2305,17 +2409,21 @@ function showEditStudentModal(studentId) {
   });
 }
 
-async function handleEditStudent(event, studentId) {
+async function handleEditStudent(event, studentId, isMovaOnly) {
   event.preventDefault();
-  const result = await api('PUT', `/api/students/${studentId}`, {
+  const payload = {
     name: $('edit-student-name').value.trim(),
     email: $('edit-student-email').value.trim(),
     phone: $('edit-student-phone').value.trim(),
-    status: $('edit-student-status').value,
-    pp2_exam_passed: $('edit-student-pp2-exam').checked,
-    pp2_exam_date: $('edit-student-pp2-exam').checked ? ($('edit-student-pp2-exam-date').value || null) : null,
     course_started: $('edit-student-course-started').value
-  });
+  };
+  // For MOVA-only students, don't touch status / PP2-exam — they're not shown in the modal.
+  if (!isMovaOnly) {
+    payload.status = $('edit-student-status').value;
+    payload.pp2_exam_passed = $('edit-student-pp2-exam').checked;
+    payload.pp2_exam_date = $('edit-student-pp2-exam').checked ? ($('edit-student-pp2-exam-date').value || null) : null;
+  }
+  const result = await api('PUT', `/api/students/${studentId}`, payload);
   if (result) {
     hideModal();
     showSuccess('Oppilas päivitetty');
@@ -3631,6 +3739,15 @@ document.addEventListener('DOMContentLoaded', () => {
     forgotForm.addEventListener('submit', (e) => {
       e.preventDefault();
       handleResetRequest();
+    });
+  }
+
+  // Reset password form (from email link)
+  const resetForm = $('reset-password-form');
+  if (resetForm) {
+    resetForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      handleResetSubmit();
     });
   }
 
