@@ -942,8 +942,9 @@ app.post('/api/students', requireAuth, requireInstructor, async (req, res) => {
   const userResult = await db.prepare(
     `INSERT INTO users
        (username, email, name, password_hash, phone, role, status, pp2_exam_passed,
-        course_started, student_notes, club_id, is_mova_only, mova_status, mova_started_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        course_started, student_notes, club_id, is_mova_only, mova_status, mova_started_at,
+        must_change_password)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`
   ).run(username, email, name, hashedPassword, phone || null, 'student', finalStatus, 0,
     startedDate, '', instructorClubId, movaOnly ? 1 : 0, movaStatus, movaStartedAt);
 
@@ -2413,7 +2414,7 @@ app.post('/api/instructors', requireAuth, requireChiefInstructor, async (req, re
   const autoChief = existingInstructors ? 0 : 1;
 
   const result = await db.prepare(
-    'INSERT INTO users (username, email, name, password_hash, phone, role, club_id, is_chief) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO users (username, email, name, password_hash, phone, role, club_id, is_chief, must_change_password) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)'
   ).run(username, email, name, hashedPassword, phone || null, 'instructor', targetClubId, autoChief);
 
   await logAction(req.session.userId, 'CREATE', 'instructor', result.lastInsertRowid, { name, email, is_chief: autoChief });
@@ -2528,7 +2529,7 @@ app.post('/api/clubs', requireAuth, requireAdmin, async (req, res) => {
     // Create first instructor for the club
     const hashedPassword = bcrypt.hashSync(instructor_password, 12);
     const instructorResult = await db.prepare(
-      'INSERT INTO users (username, email, name, password_hash, role, club_id) VALUES (?, ?, ?, ?, ?, ?)'
+      'INSERT INTO users (username, email, name, password_hash, role, club_id, must_change_password) VALUES (?, ?, ?, ?, ?, ?, 1)'
     ).run(instructor_username, instructor_email, instructor_name, hashedPassword, 'instructor', clubId);
 
     await logAction(req.session.userId, 'CREATE', 'club', clubId, { name: club_name, instructor_id: instructorResult.lastInsertRowid });
