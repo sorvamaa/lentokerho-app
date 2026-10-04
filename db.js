@@ -213,6 +213,7 @@ async function migrate(w) {
       date           TEXT    NOT NULL,
       instructor_id  INTEGER NOT NULL REFERENCES users(id),
       notes          TEXT    DEFAULT NULL,
+      status         TEXT    NOT NULL DEFAULT 'held' CHECK (status IN ('planned','held')),
       created_at     TIMESTAMP DEFAULT NOW()
     );
 

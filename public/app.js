@@ -2812,6 +2812,20 @@ async function saveClubSetting(key, value) {
 // LESSONS VIEW
 // ============================================================================
 
+let lessonsFilter = 'all'; // 'all' | 'planned' | 'held'
+
+function setLessonsFilter(f) {
+  lessonsFilter = f;
+  renderLessons();
+}
+
+function lessonStatusBadge(status) {
+  if (status === 'planned') {
+    return '<span style="background: #fd7e14; color: #fff; padding: 2px 10px; border-radius: 4px; font-size: 0.8em;">Suunniteltu</span>';
+  }
+  return '<span style="background: #28a745; color: #fff; padding: 2px 10px; border-radius: 4px; font-size: 0.8em;">Pidetty</span>';
+}
+
 async function renderLessons() {
   const mainContent = $('main-content');
   mainContent.innerHTML = '<p style="text-align: center; padding: 40px;">Ladataan...</p>';
@@ -2819,13 +2833,24 @@ async function renderLessons() {
   const data = await api('GET', '/api/lessons');
   if (!data) return;
 
-  const lessons = data.lessons || [];
+  const allLessons = data.lessons || [];
+  const lessons = lessonsFilter === 'all'
+    ? allLessons
+    : allLessons.filter(l => (l.status || 'held') === lessonsFilter);
+
+  const btn = (val, label) => `<button class="btn ${lessonsFilter === val ? 'btn-primary' : 'btn-secondary'}" onclick="setLessonsFilter('${val}')">${label}</button>`;
 
   let html = `
     <div style="padding: 20px;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-        <h1>Oppitunnit</h1>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+        <h1 style="margin: 0;">Oppitunnit</h1>
         <button class="btn btn-primary" onclick="showLessonForm()">+ Uusi oppitunti</button>
+      </div>
+
+      <div style="margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap;">
+        ${btn('all', 'Kaikki')}
+        ${btn('planned', 'Suunnitellut')}
+        ${btn('held', 'Pidetyt')}
       </div>
 
       <div style="overflow-x: auto;">
@@ -2833,6 +2858,7 @@ async function renderLessons() {
           <thead>
             <tr style="background: #f8f9fa; text-align: left;">
               <th style="padding: 10px;">Päivä</th>
+              <th style="padding: 10px;">Status</th>
               <th style="padding: 10px;">Aiheita</th>
               <th style="padding: 10px;">Oppilaita</th>
               <th style="padding: 10px;">Ohjaaja</th>
@@ -2844,9 +2870,11 @@ async function renderLessons() {
 
   if (lessons.length > 0) {
     lessons.forEach(lesson => {
+      const status = lesson.status || 'held';
       html += `
         <tr style="border-bottom: 1px solid #dee2e6; cursor: pointer;" onclick="window.location.hash='#lesson/${lesson.id}'">
           <td style="padding: 10px;">${formatDate(lesson.date)}</td>
+          <td style="padding: 10px;">${lessonStatusBadge(status)}</td>
           <td style="padding: 10px;">${lesson.topic_count || 0}</td>
           <td style="padding: 10px;">${lesson.student_count || 0}</td>
           <td style="padding: 10px;">${escapeHtml(lesson.instructor_name || '')}</td>
@@ -2858,25 +2886,52 @@ async function renderLessons() {
       `;
     });
   } else {
-    html += '<tr><td colspan="5" style="text-align: center; padding: 20px;">Ei oppitunteja</td></tr>';
+    html += '<tr><td colspan="6" style="text-align: center; padding: 20px;">Ei oppitunteja</td></tr>';
   }
 
   html += '</tbody></table></div></div>';
   mainContent.innerHTML = html;
 }
 
-function showLessonForm() {
+// showLessonForm(lessonId): if lessonId is given, loads the existing lesson and
+// opens the modal in edit mode (PUT on submit). Without an id, opens in create mode.
+async function showLessonForm(lessonId) {
+  const isEdit = !!lessonId;
+  let existing = null;
+  if (isEdit) {
+    const data = await api('GET', `/api/lessons/${lessonId}`);
+    if (!data) return;
+    existing = {
+      lesson: data.lesson || {},
+      student_ids: new Set((data.student_ids || []).map(Number)),
+      topic_keys: new Set(data.topic_keys || [])
+    };
+  }
+
   const today = new Date().toISOString().split('T')[0];
+  const date = existing ? existing.lesson.date : today;
+  const notes = existing ? (existing.lesson.notes || '') : '';
+  // "Merkitse heti pidetyksi" is only offered in create mode; status changes on existing
+  // lessons go through the explicit buttons in the detail view.
+  const immediateHeldToggle = isEdit ? '' : `
+    <div class="form-group" style="margin-bottom: 12px;">
+      <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
+        <input type="checkbox" id="lesson-mark-held">
+        <span>Merkitse heti pidetyksi (teoriakirjaukset tehdään nyt)</span>
+      </label>
+    </div>
+  `;
+
   const html = `
-    <form onsubmit="handleSaveLesson(event)">
+    <form onsubmit="handleSaveLesson(event, ${isEdit ? lessonId : 'null'})">
       <div class="form-group" style="margin-bottom: 12px;">
         <label>Päivä *</label>
-        <input type="date" id="lesson-date" value="${today}" required style="width: 100%; padding: 8px; box-sizing: border-box;">
+        <input type="date" id="lesson-date" value="${date}" required style="width: 100%; padding: 8px; box-sizing: border-box;">
       </div>
 
       <div class="form-group" style="margin-bottom: 12px;">
         <label>Muistiinpanot</label>
-        <textarea id="lesson-notes" placeholder="Oppitunnin muistiinpanot..." style="width: 100%; padding: 8px; box-sizing: border-box; min-height: 60px;"></textarea>
+        <textarea id="lesson-notes" placeholder="Oppitunnin muistiinpanot..." style="width: 100%; padding: 8px; box-sizing: border-box; min-height: 60px;">${escapeHtml(notes)}</textarea>
       </div>
 
       <div class="form-group" style="margin-bottom: 12px;">
@@ -2893,28 +2948,36 @@ function showLessonForm() {
         </div>
       </div>
 
+      ${immediateHeldToggle}
+
       <div style="margin-top: 20px; text-align: right;">
         <button type="button" class="btn btn-secondary" onclick="hideModal()">Peruuta</button>
         <button type="submit" class="btn btn-primary">Tallenna</button>
       </div>
     </form>
   `;
-  showModal('Uusi oppitunti', html);
-  populateLessonForm();
+  showModal(isEdit ? 'Muokkaa oppituntia' : 'Uusi oppitunti', html);
+  populateLessonForm(existing);
 }
 
-async function populateLessonForm() {
+async function populateLessonForm(existing) {
+  const preselectedTopics = existing ? existing.topic_keys : new Set();
+  const preselectedStudents = existing ? existing.student_ids : new Set();
+
   // Populate topics from dynamic structure
   const structure = await getTheoryStructure();
   let topicsHtml = '';
-  ['pp1', 'pp2'].forEach(level => {
+  ['pp1', 'pp2', 'mova'].forEach(level => {
+    const sections = structure[level] || [];
+    if (sections.length === 0) return;
     topicsHtml += `<h4 style="margin: 10px 0 5px 0;">${level.toUpperCase()}</h4>`;
-    (structure[level] || []).forEach(section => {
+    sections.forEach(section => {
       topicsHtml += `<div style="margin: 8px 0 4px 0;"><strong>${escapeHtml(section.title)}</strong></div>`;
       section.topics.forEach(topic => {
+        const checked = preselectedTopics.has(topic.key) ? 'checked' : '';
         topicsHtml += `
           <label style="display: block; margin-left: 10px; margin-bottom: 3px; cursor: pointer;">
-            <input type="checkbox" class="topic-checkbox" value="${topic.key}">
+            <input type="checkbox" class="topic-checkbox" value="${topic.key}" ${checked}>
             ${escapeHtml(topic.title)}
           </label>
         `;
@@ -2928,19 +2991,36 @@ async function populateLessonForm() {
   let studentsHtml = '';
   if (studentData && studentData.students) {
     studentData.students.forEach(student => {
+      const checked = preselectedStudents.has(student.id) ? 'checked' : '';
       studentsHtml += `
         <label style="display: block; margin-bottom: 5px; cursor: pointer;">
-          <input type="checkbox" class="student-checkbox" value="${student.id}">
+          <input type="checkbox" class="student-checkbox" value="${student.id}" ${checked}>
           ${escapeHtml(student.name)}
         </label>
       `;
     });
+    // Also include students that are selected on this (edit mode) lesson but no longer in
+    // the active list — e.g. graduated — so the ohjaaja can see and keep them.
+    if (existing) {
+      const activeIds = new Set(studentData.students.map(s => s.id));
+      for (const sid of preselectedStudents) {
+        if (!activeIds.has(sid)) {
+          const idx = (existing.lesson.student_names_index || {})[sid];
+          studentsHtml += `
+            <label style="display: block; margin-bottom: 5px; cursor: pointer; color: #888;">
+              <input type="checkbox" class="student-checkbox" value="${sid}" checked>
+              Oppilas #${sid} (ei aktiivinen)
+            </label>
+          `;
+        }
+      }
+    }
   }
   if (!studentsHtml) studentsHtml = '<p style="color: #666;">Ei aktiivisia oppilaita</p>';
   $('students-container').innerHTML = studentsHtml;
 }
 
-async function handleSaveLesson(event) {
+async function handleSaveLesson(event, lessonId) {
   event.preventDefault();
 
   const date = $('lesson-date').value;
@@ -2950,11 +3030,22 @@ async function handleSaveLesson(event) {
 
   if (!date) { showError('Päivä vaaditaan'); return; }
 
-  const result = await api('POST', '/api/lessons', { date, notes, topic_keys, student_ids });
-  if (result) {
-    hideModal();
-    showSuccess('Oppitunti tallennettu');
-    renderLessons();
+  if (lessonId) {
+    const result = await api('PUT', `/api/lessons/${lessonId}`, { date, notes, topic_keys, student_ids });
+    if (result) {
+      hideModal();
+      showSuccess('Oppitunti päivitetty');
+      renderLessonDetail(lessonId);
+    }
+  } else {
+    const markHeld = $('lesson-mark-held') && $('lesson-mark-held').checked;
+    const status = markHeld ? 'held' : 'planned';
+    const result = await api('POST', '/api/lessons', { date, notes, topic_keys, student_ids, status });
+    if (result) {
+      hideModal();
+      showSuccess(markHeld ? 'Oppitunti tallennettu pidetyksi' : 'Oppitunti suunniteltu');
+      renderLessons();
+    }
   }
 }
 
@@ -2980,10 +3071,13 @@ async function renderLessonDetail(id) {
   const lesson = data.lesson || {};
   const studentNames = data.student_names || [];
   const topicKeys = data.topic_keys || [];
+  const status = lesson.status || 'held';
+  const isPlanned = status === 'planned';
+  const topicsLabel = isPlanned ? 'Suunnitellut aiheet' : 'Käsitellyt aiheet';
 
   const structure = await getTheoryStructure();
   const topicLabels = {};
-  ['pp1', 'pp2'].forEach(level => {
+  ['pp1', 'pp2', 'mova'].forEach(level => {
     (structure[level] || []).forEach(section => {
       section.topics.forEach(topic => {
         topicLabels[topic.key] = `${level.toUpperCase()} – ${topic.title}`;
@@ -2991,23 +3085,85 @@ async function renderLessonDetail(id) {
     });
   });
 
+  const statusAction = isPlanned
+    ? `<button class="btn btn-primary" onclick="markLessonHeld(${id})">Merkitse pidetyksi</button>`
+    : `<button class="btn btn-secondary" onclick="revertLessonConfirm(${id})">Palauta suunnitelmaksi</button>`;
+
   let html = `
     <div style="padding: 20px;">
       <button class="btn btn-secondary" onclick="window.location.hash='#lessons'" style="margin-bottom: 15px;">← Takaisin</button>
 
-      <h1>Oppitunti ${formatDate(lesson.date)}</h1>
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+        <div>
+          <h1 style="margin: 0 0 6px 0;">Oppitunti ${formatDate(lesson.date)}</h1>
+          <div>${lessonStatusBadge(status)}</div>
+        </div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+          <button class="btn btn-secondary" onclick="showLessonForm(${id})">Muokkaa</button>
+          ${statusAction}
+          <button class="btn btn-danger" onclick="deleteLessonConfirm(${id})">Poista</button>
+        </div>
+      </div>
+
       <p><strong>Ohjaaja:</strong> ${escapeHtml(lesson.instructor_name || '')}</p>
       ${lesson.notes ? `<p><strong>Muistiinpanot:</strong> ${escapeHtml(lesson.notes)}</p>` : ''}
+
+      ${isPlanned ? `
+        <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 10px 14px; margin: 12px 0; color: #856404; font-size: 0.9em;">
+          Oppitunti on suunnitelma — oppilaille ei ole kirjattu teoriasuorituksia. Merkitse pidetyksi tunnin jälkeen.
+        </div>
+      ` : ''}
 
       <h2>Oppilaat (${studentNames.length})</h2>
       ${studentNames.length ? `<ul>${studentNames.map(n => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : '<p style="color:#666;">Ei merkittyjä oppilaita</p>'}
 
-      <h2>Käsitellyt aiheet (${topicKeys.length})</h2>
+      <h2>${topicsLabel} (${topicKeys.length})</h2>
       ${topicKeys.length ? `<ul>${topicKeys.map(k => `<li>${escapeHtml(topicLabels[k] || k)}</li>`).join('')}</ul>` : '<p style="color:#666;">Ei merkittyjä aiheita</p>'}
     </div>
   `;
 
   mainContent.innerHTML = html;
+}
+
+async function markLessonHeld(lessonId) {
+  // Preserve existing fields; only change status. Backend keeps students+topics.
+  const data = await api('GET', `/api/lessons/${lessonId}`);
+  if (!data) return;
+  const result = await api('PUT', `/api/lessons/${lessonId}`, {
+    date: data.lesson.date,
+    notes: data.lesson.notes,
+    student_ids: data.student_ids,
+    topic_keys: data.topic_keys,
+    status: 'held'
+  });
+  if (result) {
+    showSuccess('Oppitunti merkitty pidetyksi — teoriakirjaukset tehty');
+    renderLessonDetail(lessonId);
+  }
+}
+
+function revertLessonConfirm(lessonId) {
+  showConfirm(
+    'Palauta oppitunti suunnitelmaksi? Tämän oppitunnin tekemät teoriakirjaukset poistetaan oppilailta. Toiminto voidaan perua merkitsemällä oppitunti uudelleen pidetyksi.',
+    () => revertLessonToPlanned(lessonId),
+    { confirmText: 'Palauta suunnitelmaksi', confirmClass: 'btn-secondary' }
+  );
+}
+
+async function revertLessonToPlanned(lessonId) {
+  const data = await api('GET', `/api/lessons/${lessonId}`);
+  if (!data) return;
+  const result = await api('PUT', `/api/lessons/${lessonId}`, {
+    date: data.lesson.date,
+    notes: data.lesson.notes,
+    student_ids: data.student_ids,
+    topic_keys: data.topic_keys,
+    status: 'planned'
+  });
+  if (result) {
+    showSuccess('Oppitunti palautettu suunnitelmaksi');
+    renderLessonDetail(lessonId);
+  }
 }
 
 // ============================================================================

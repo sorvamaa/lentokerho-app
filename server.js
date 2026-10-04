@@ -1836,11 +1836,16 @@ app.get('/api/lessons', requireAuth, requireInstructor, async (req, res) => {
 });
 
 // POST /api/lessons
+// status: 'planned' (default) stores selections without creating theory_completions;
+// 'held' records completions immediately for every (student × topic) pair.
 app.post('/api/lessons', requireAuth, requireInstructor, async (req, res) => {
-  const { date, topic_keys = [], student_ids = [], notes } = req.body;
+  const { date, topic_keys = [], student_ids = [], notes, status = 'planned' } = req.body;
 
   if (!date) {
     return res.status(400).json({ error: 'Date required' });
+  }
+  if (status !== 'planned' && status !== 'held') {
+    return res.status(400).json({ error: 'Invalid status (must be planned or held)' });
   }
 
   const db = getDb();
@@ -1850,8 +1855,8 @@ app.post('/api/lessons', requireAuth, requireInstructor, async (req, res) => {
     await client.query('BEGIN');
 
     const lessonRes = await client.query(
-      'INSERT INTO lessons (date, instructor_id, notes) VALUES ($1, $2, $3) RETURNING id',
-      [date, req.session.userId, notes || null]
+      'INSERT INTO lessons (date, instructor_id, notes, status) VALUES ($1, $2, $3, $4) RETURNING id',
+      [date, req.session.userId, notes || null, status]
     );
     const lessonId = lessonRes.rows[0].id;
 
@@ -1862,12 +1867,14 @@ app.post('/api/lessons', requireAuth, requireInstructor, async (req, res) => {
     for (const topicKey of topic_keys) {
       await client.query('INSERT INTO lesson_topics (lesson_id, topic_key) VALUES ($1, $2)', [lessonId, topicKey]);
 
-      // Mark theory completions for all students in this lesson
-      for (const studentId of student_ids) {
-        await client.query(
-          'INSERT INTO theory_completions (student_id, topic_key, completed_by, lesson_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-          [studentId, topicKey, req.session.userId, lessonId]
-        );
+      // Only record theory completions if the lesson is already held.
+      if (status === 'held') {
+        for (const studentId of student_ids) {
+          await client.query(
+            'INSERT INTO theory_completions (student_id, topic_key, completed_by, lesson_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+            [studentId, topicKey, req.session.userId, lessonId]
+          );
+        }
       }
     }
 
@@ -1875,7 +1882,8 @@ app.post('/api/lessons', requireAuth, requireInstructor, async (req, res) => {
 
     await logAction(req.session.userId, 'CREATE', 'lesson', lessonId, {
       student_count: student_ids.length,
-      topic_count: topic_keys.length
+      topic_count: topic_keys.length,
+      status
     });
 
     const lesson = await db.prepare(`
@@ -1937,9 +1945,13 @@ app.get('/api/lessons/:id', requireAuth, requireInstructor, async (req, res) => 
 });
 
 // PUT /api/lessons/:id
+// Replaces students+topics; theory_completions follow the (new) status:
+//   held    → delete all completions for this lesson, then re-insert for every (student × topic)
+//   planned → delete all completions for this lesson (no re-insert)
+// `status` is optional — omitted keeps the current value.
 app.put('/api/lessons/:id', requireAuth, requireInstructor, async (req, res) => {
   const { id } = req.params;
-  const { date, notes, student_ids = [], topic_keys = [] } = req.body;
+  const { date, notes, student_ids = [], topic_keys = [], status } = req.body;
 
   const db = getDb();
   const lesson = await db.prepare('SELECT * FROM lessons WHERE id = ?').get(id);
@@ -1948,47 +1960,63 @@ app.put('/api/lessons/:id', requireAuth, requireInstructor, async (req, res) => 
     return res.status(404).json({ error: 'Lesson not found' });
   }
 
+  if (status !== undefined && status !== 'planned' && status !== 'held') {
+    return res.status(400).json({ error: 'Invalid status (must be planned or held)' });
+  }
+  const newStatus = status !== undefined ? status : lesson.status;
+
   const client = await db.getClient();
 
   try {
     await client.query('BEGIN');
 
-    if (date !== undefined || notes !== undefined) {
+    if (date !== undefined || notes !== undefined || status !== undefined) {
       const updates = [];
       const values = [];
       let paramIdx = 1;
       if (date !== undefined) { updates.push(`date = $${paramIdx++}`); values.push(date); }
       if (notes !== undefined) { updates.push(`notes = $${paramIdx++}`); values.push(notes); }
+      if (status !== undefined) { updates.push(`status = $${paramIdx++}`); values.push(status); }
       values.push(id);
       const query = `UPDATE lessons SET ${updates.join(', ')} WHERE id = $${paramIdx}`;
       await client.query(query, values);
     }
 
-    // Update lesson_students
+    // Replace lesson_students
     await client.query('DELETE FROM lesson_students WHERE lesson_id = $1', [id]);
     for (const studentId of student_ids) {
       await client.query('INSERT INTO lesson_students (lesson_id, student_id) VALUES ($1, $2)', [id, studentId]);
     }
 
-    // Update lesson_topics and theory_completions
+    // Replace lesson_topics (always; whether planned or held)
     await client.query('DELETE FROM lesson_topics WHERE lesson_id = $1', [id]);
-    await client.query('UPDATE theory_completions SET lesson_id = NULL WHERE lesson_id = $1', [id]);
-
     for (const topicKey of topic_keys) {
       await client.query('INSERT INTO lesson_topics (lesson_id, topic_key) VALUES ($1, $2)', [id, topicKey]);
+    }
 
-      for (const studentId of student_ids) {
-        await client.query(
-          'INSERT INTO theory_completions (student_id, topic_key, completed_by, lesson_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
-          [studentId, topicKey, req.session.userId, id]
-        );
+    // theory_completions follow the (new) status.
+    // Always clear this lesson's completions first — removes stale ones and lets a
+    // planned-reverted lesson undo its earlier recordings.
+    await client.query('DELETE FROM theory_completions WHERE lesson_id = $1', [id]);
+
+    if (newStatus === 'held') {
+      for (const topicKey of topic_keys) {
+        for (const studentId of student_ids) {
+          // ON CONFLICT DO NOTHING: if the student already has this topic completed via another
+          // means (self-mark, a different lesson), keep that row — don't overwrite its lesson link.
+          await client.query(
+            'INSERT INTO theory_completions (student_id, topic_key, completed_by, lesson_id) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING',
+            [studentId, topicKey, req.session.userId, id]
+          );
+        }
       }
     }
 
     await client.query('COMMIT');
 
     await logAction(req.session.userId, 'UPDATE', 'lesson', id, {
-      fields: Object.keys(req.body)
+      fields: Object.keys(req.body),
+      new_status: newStatus
     });
 
     const updated = await db.prepare(`
@@ -3336,6 +3364,11 @@ initDb().then(async () => {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_exam_date TEXT DEFAULT NULL`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS mova_graduated_at TIMESTAMP DEFAULT NULL`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_mova_only INTEGER DEFAULT 0`);
+    // lessons.status: 'planned' (draft, no theory completions yet) or 'held' (completions recorded)
+    // Default 'held' preserves backward compatibility — pre-existing lessons were effectively held.
+    await pool.query(`ALTER TABLE lessons ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'held'`);
+    await pool.query(`ALTER TABLE lessons DROP CONSTRAINT IF EXISTS lessons_status_check`);
+    await pool.query(`ALTER TABLE lessons ADD CONSTRAINT lessons_status_check CHECK (status IN ('planned','held'))`);
     // equipment: optional motor fields
     await pool.query(`ALTER TABLE equipment ADD COLUMN IF NOT EXISTS motor_manufacturer TEXT DEFAULT ''`);
     await pool.query(`ALTER TABLE equipment ADD COLUMN IF NOT EXISTS motor_model TEXT DEFAULT ''`);
