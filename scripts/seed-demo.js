@@ -1,252 +1,309 @@
 // Demo-seed for NODE_ENV=demo instances. Idempotent — safe to call every startup.
-// Creates the "Extreme Team" club with Eemeli Aittokallio as chief + 5 sample
-// students in various training stages so Eemeli can see the UI populated on login.
+// Creates a set of demo clubs with chief instructors + 5 sample students each,
+// in various training stages so each chief sees their UI populated on login.
 //
 // Can also be run standalone:
 //   DATABASE_URL='postgresql://...' node scripts/seed-demo.js
 //
-// Does NOT touch other clubs — only creates/skips Extreme Team.
+// Does NOT touch clubs that already exist — only creates missing demo clubs.
 
 const bcrypt = require('bcryptjs');
 
-const CLUB_SLUG = 'extreme';
-const CLUB_NAME = 'Extreme Team';
-const CLUB_DESC = 'Varjoliitokerho — demo-ympäristö';
-const CHIEF = {
-  username: 'eemeli',
-  password: 'Eemeli123!!',
-  name: 'Eemeli Aittokallio',
-  email: 'eemeli@extreme.test',
-};
-const SITE_NAME = 'Virttaa';
-
-const today = () => new Date().toISOString().split('T')[0];
 const daysAgo = (n) => {
   const d = new Date();
   d.setDate(d.getDate() - n);
   return d.toISOString().split('T')[0];
 };
 
-async function seedDemo(client) {
-  // Skip if already seeded
-  const existing = await client.query("SELECT id FROM clubs WHERE slug = $1", [CLUB_SLUG]);
+// A reusable set of 5 student archetypes that showcase every state in the UI.
+// Each archetype takes a `names` object with a first/last name set per club so
+// each demo looks like it has distinct people, not clones.
+function makeStudents(nameSet) {
+  return [
+    {
+      archetype: 'beginner',
+      ...nameSet[0],
+      status: 'ongoing',
+      course_started: daysAgo(60),
+      student_notes: 'Vasta-aloittanut, 3 matalaa lentoa tehty.',
+      flights: [
+        { date: daysAgo(50), type: 'low' },
+        { date: daysAgo(45), type: 'low' },
+        { date: daysAgo(30), type: 'low' },
+      ],
+      theory: { pp1: 3 },
+    },
+    {
+      archetype: 'ready_to_graduate',
+      ...nameSet[1],
+      status: 'ongoing',
+      course_started: daysAgo(365),
+      pp2_exam_passed: 1,
+      pp2_exam_date: daysAgo(30),
+      student_notes: 'Edistynyt hyvin, PP2 valmistumisvaiheessa.',
+      flights: 'ready_to_graduate',
+      theory: { pp1: 'all', pp2: 'all' },
+    },
+    {
+      archetype: 'mova_only',
+      ...nameSet[2],
+      status: 'completed',
+      course_started: daysAgo(30),
+      is_mova_only: true,
+      mova_status: 'ongoing',
+      mova_started_at: daysAgo(30),
+      student_notes: 'Siirtyi muusta kerhosta MOVA-koulutukseen.',
+      flights: [
+        { date: daysAgo(25), type: 'motor' },
+        { date: daysAgo(18), type: 'motor' },
+        { date: daysAgo(11), type: 'motor' },
+      ],
+      theory: { mova: 10 },
+    },
+    {
+      archetype: 'pp2_done_mova_in_progress',
+      ...nameSet[3],
+      status: 'completed',
+      course_started: daysAgo(500),
+      pp2_exam_passed: 1,
+      pp2_exam_date: daysAgo(90),
+      graduated_at: daysAgo(85),
+      mova_status: 'ongoing',
+      mova_started_at: daysAgo(60),
+      pp4_exam_passed: 1,
+      pp4_exam_date: daysAgo(30),
+      student_notes: 'PP2 suoritettu, MOVA-koulutus käynnissä.',
+      flights: 'pp2_done_plus_mova',
+      theory: { pp1: 'all', pp2: 'all', mova: 15 },
+    },
+    {
+      archetype: 'graduated',
+      ...nameSet[4],
+      status: 'completed',
+      course_started: daysAgo(400),
+      pp2_exam_passed: 1,
+      pp2_exam_date: daysAgo(60),
+      graduated_at: daysAgo(55),
+      student_notes: 'Valmistunut keväällä.',
+      flights: 'graduated',
+      theory: { pp1: 'all', pp2: 'all' },
+    },
+  ];
+}
+
+// Demo-clubs. Add new ones here; the seed is idempotent — existing clubs are skipped.
+const DEMO_CLUBS = [
+  {
+    slug: 'extreme',
+    name: 'Extreme Team',
+    description: 'Varjoliitokerho — demo-ympäristö',
+    chief: {
+      username: 'eemeli',
+      password: 'Eemeli123!!',
+      name: 'Eemeli Aittokallio',
+      email: 'eemeli@extreme.test',
+    },
+    siteName: 'Virttaa',
+    studentNames: [
+      { username: 'antti.alku', email: 'antti@extreme.test', name: 'Antti Alku' },
+      { username: 'satu.siirtolainen', email: 'satu@extreme.test', name: 'Satu Siirtolainen' },
+      { username: 'jarkko.pilotti', email: 'jarkko@extreme.test', name: 'Jarkko Pilotti' },
+      { username: 'pirjo.pilvi', email: 'pirjo@extreme.test', name: 'Pirjo Pilvi' },
+      { username: 'risto.rohkea', email: 'risto@extreme.test', name: 'Risto Rohkea' },
+    ],
+  },
+  {
+    slug: 'itaporvoo',
+    name: 'Itä-Porvoon Varjoliitäjät ry',
+    description: 'Varjoliitokerho — demo-ympäristö',
+    chief: {
+      username: 'markku',
+      password: 'Markku123!!',
+      name: 'Markku Mastomäki',
+      email: 'markku@itaporvoo.test',
+    },
+    siteName: 'Söderskog',
+    studentNames: [
+      { username: 'vilma.virtanen', email: 'vilma@itaporvoo.test', name: 'Vilma Virtanen' },
+      { username: 'teemu.taivas', email: 'teemu@itaporvoo.test', name: 'Teemu Taivas' },
+      { username: 'hannu.harrastaja', email: 'hannu@itaporvoo.test', name: 'Hannu Harrastaja' },
+      { username: 'kaisa.korkealla', email: 'kaisa@itaporvoo.test', name: 'Kaisa Korkealla' },
+      { username: 'oskari.olympia', email: 'oskari@itaporvoo.test', name: 'Oskari Olympia' },
+    ],
+  },
+];
+
+async function seedClub(client, def, topicsByLevel) {
+  const existing = await client.query('SELECT id FROM clubs WHERE slug = $1', [def.slug]);
   if (existing.rowCount > 0) {
-    console.log(`[demo-seed] ${CLUB_NAME} already exists (club_id=${existing.rows[0].id}) — skipping`);
+    console.log(`[demo-seed] ${def.name} already exists (club_id=${existing.rows[0].id}) — skipping`);
     return existing.rows[0].id;
   }
 
-  console.log(`[demo-seed] Creating ${CLUB_NAME} with chief ${CHIEF.name}...`);
+  console.log(`[demo-seed] Creating ${def.name} with chief ${def.chief.name}...`);
 
-  // Club
   const clubRes = await client.query(
     'INSERT INTO clubs (name, slug, description) VALUES ($1, $2, $3) RETURNING id',
-    [CLUB_NAME, CLUB_SLUG, CLUB_DESC]
+    [def.name, def.slug, def.description]
   );
   const clubId = clubRes.rows[0].id;
 
-  // Chief instructor — must_change_password=0 so Eemeli logs straight in
-  const chiefHash = bcrypt.hashSync(CHIEF.password, 12);
+  // Chief — must_change_password=0 so the chief logs straight in on the demo
+  const chiefHash = bcrypt.hashSync(def.chief.password, 12);
   const chiefRes = await client.query(
     `INSERT INTO users (username, email, name, password_hash, role, club_id, is_chief, must_change_password)
      VALUES ($1, $2, $3, $4, 'instructor', $5, 1, 0) RETURNING id`,
-    [CHIEF.username, CHIEF.email, CHIEF.name, chiefHash, clubId]
+    [def.chief.username, def.chief.email, def.chief.name, chiefHash, clubId]
   );
   const chiefId = chiefRes.rows[0].id;
 
-  // Site
   const siteRes = await client.query(
     'INSERT INTO sites (name, description, club_id) VALUES ($1, $2, $3) RETURNING id',
-    [SITE_NAME, 'Demo-lentopaikka', clubId]
+    [def.siteName, 'Demo-lentopaikka', clubId]
   );
   const siteId = siteRes.rows[0].id;
 
-  // Theory topic keys (whatever is in theory_topics_def)
-  const topics = await client.query(
-    "SELECT key, section_id, (SELECT level FROM theory_sections WHERE id = section_id) as level FROM theory_topics_def"
-  );
-  const pp1Keys = topics.rows.filter(t => t.level === 'pp1').map(t => t.key);
-  const pp2Keys = topics.rows.filter(t => t.level === 'pp2').map(t => t.key);
-  const movaKeys = topics.rows.filter(t => t.level === 'mova').map(t => t.key);
-
-  // ============================================================================
-  // SAMPLE STUDENTS
-  // ============================================================================
-
   const studentPass = bcrypt.hashSync('Demo123!!', 12);
+  const students = makeStudents(def.studentNames);
+  const studentIds = {};
 
-  async function createStudent(opts) {
+  for (const s of students) {
     const r = await client.query(
       `INSERT INTO users
-         (username, email, name, password_hash, phone, role, status, pp2_exam_passed, pp2_exam_date,
-          pp4_exam_passed, pp4_exam_date, mova_status, mova_started_at, mova_exam_passed, mova_exam_date,
-          mova_graduated_at, is_mova_only, course_started, student_notes, club_id, must_change_password,
-          graduated_at)
-       VALUES ($1,$2,$3,$4,$5,'student',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,0,$20)
+         (username, email, name, password_hash, role, status, pp2_exam_passed, pp2_exam_date,
+          pp4_exam_passed, pp4_exam_date, mova_status, mova_started_at, mova_exam_passed,
+          mova_graduated_at, is_mova_only, course_started, student_notes, club_id,
+          must_change_password, graduated_at)
+       VALUES ($1,$2,$3,$4,'student',$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,0,$18)
        RETURNING id`,
       [
-        opts.username, opts.email, opts.name, studentPass, opts.phone || null,
-        opts.status, opts.pp2_exam_passed || 0, opts.pp2_exam_date || null,
-        opts.pp4_exam_passed || 0, opts.pp4_exam_date || null,
-        opts.mova_status || null, opts.mova_started_at || null,
-        opts.mova_exam_passed || 0, opts.mova_exam_date || null,
-        opts.mova_graduated_at || null, opts.is_mova_only ? 1 : 0,
-        opts.course_started, opts.student_notes || '', clubId,
-        opts.graduated_at || null
+        s.username, s.email, s.name, studentPass,
+        s.status, s.pp2_exam_passed || 0, s.pp2_exam_date || null,
+        s.pp4_exam_passed || 0, s.pp4_exam_date || null,
+        s.mova_status || null, s.mova_started_at || null, s.mova_exam_passed || 0,
+        s.mova_graduated_at || null, s.is_mova_only ? 1 : 0,
+        s.course_started, s.student_notes || '', clubId, s.graduated_at || null,
       ]
     );
-    return r.rows[0].id;
-  }
+    studentIds[s.archetype] = r.rows[0].id;
+    const sid = r.rows[0].id;
 
-  async function addFlight(studentId, date, type, options = {}) {
-    await client.query(
-      `INSERT INTO flights (student_id, date, flight_count, flight_type, site_id, weather, exercises, notes, is_approval_flight, added_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [studentId, date, options.count || 1, type, siteId, options.weather || null, options.exercises || null, options.notes || null, options.is_approval ? 1 : 0, chiefId]
-    );
-  }
+    // Flights — either an explicit list or a canned pattern
+    const flightSpec = s.flights;
+    const flights = Array.isArray(flightSpec) ? flightSpec : expandFlightPattern(flightSpec);
+    for (const f of flights) {
+      await client.query(
+        `INSERT INTO flights (student_id, date, flight_count, flight_type, site_id, is_approval_flight, added_by)
+         VALUES ($1, $2, 1, $3, $4, $5, $6)`,
+        [sid, f.date, f.type, siteId, f.is_approval ? 1 : 0, chiefId]
+      );
+    }
 
-  async function markTheories(studentId, keys) {
-    for (const key of keys) {
+    // Theory — count or 'all'
+    const theoryKeys = [];
+    for (const level of ['pp1', 'pp2', 'mova']) {
+      const spec = s.theory[level];
+      if (spec === undefined) continue;
+      const keys = topicsByLevel[level] || [];
+      const take = spec === 'all' ? keys.length : spec;
+      theoryKeys.push(...keys.slice(0, take));
+    }
+    for (const key of theoryKeys) {
       await client.query(
         'INSERT INTO theory_completions (student_id, topic_key, completed_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING',
-        [studentId, key, chiefId]
+        [sid, key, chiefId]
       );
     }
   }
 
-  // --- 1. Antti Alku — vasta-aloittanut ---------------------------------------
-  const antti = await createStudent({
-    username: 'antti.alku',
-    email: 'antti@extreme.test',
-    name: 'Antti Alku',
-    status: 'ongoing',
-    course_started: daysAgo(60),
-    student_notes: 'Innokas aloittelija, kurssi käynnistynyt syyskuussa.'
-  });
-  await addFlight(antti, daysAgo(50), 'low');
-  await addFlight(antti, daysAgo(45), 'low');
-  await addFlight(antti, daysAgo(30), 'low');
-  await markTheories(antti, pp1Keys.slice(0, 3));
-
-  // --- 2. Satu Siirtolainen — PP2 valmis valmistumaan -------------------------
-  const satu = await createStudent({
-    username: 'satu.siirtolainen',
-    email: 'satu@extreme.test',
-    name: 'Satu Siirtolainen',
-    status: 'ongoing',
-    course_started: daysAgo(365),
-    pp2_exam_passed: 1,
-    pp2_exam_date: daysAgo(30),
-    student_notes: 'Edistynyt hyvin, PP2 valmistumisvaiheessa.'
-  });
-  // 5 matalaa + 40 korkeaa yli 7 päivän
-  for (let i = 0; i < 5; i++) await addFlight(satu, daysAgo(300 - i * 5), 'low');
-  // 7 distinct high-days
-  const highDays = [240, 220, 180, 150, 100, 60, 20];
-  let highCount = 0;
-  for (const d of highDays) {
-    const perDay = highCount < 35 ? 6 : 5;
-    for (let i = 0; i < perDay; i++) {
-      await addFlight(satu, daysAgo(d), 'high', { is_approval: (i === 0 && d === 20) });
-    }
-    highCount += perDay;
-  }
-  await markTheories(satu, [...pp1Keys, ...pp2Keys]);
-
-  // --- 3. Jarkko Pilotti — Vain MOVA (jo lisensioitu pilotti) -----------------
-  const jarkko = await createStudent({
-    username: 'jarkko.pilotti',
-    email: 'jarkko@extreme.test',
-    name: 'Jarkko Pilotti',
-    status: 'completed',
-    course_started: daysAgo(30),
-    is_mova_only: true,
-    mova_status: 'ongoing',
-    mova_started_at: daysAgo(30),
-    student_notes: 'Siirtyi muusta kerhosta MOVA-koulutukseen.'
-  });
-  for (let i = 0; i < 3; i++) await addFlight(jarkko, daysAgo(25 - i * 7), 'motor');
-  await markTheories(jarkko, movaKeys.slice(0, 10));
-
-  // --- 4. Pirjo Pilvi — PP2 valmis, MOVA kesken -------------------------------
-  const pirjo = await createStudent({
-    username: 'pirjo.pilvi',
-    email: 'pirjo@extreme.test',
-    name: 'Pirjo Pilvi',
-    status: 'completed',
-    course_started: daysAgo(500),
-    pp2_exam_passed: 1,
-    pp2_exam_date: daysAgo(90),
-    graduated_at: daysAgo(85),
-    mova_status: 'ongoing',
-    mova_started_at: daysAgo(60),
-    pp4_exam_passed: 1,
-    pp4_exam_date: daysAgo(30),
-    student_notes: 'PP2 suoritettu, MOVA-koulutus käynnissä.'
-  });
-  // Satisfy PP2 record retrospectively (not strictly required for display, keeps profile tidy)
-  for (let i = 0; i < 5; i++) await addFlight(pirjo, daysAgo(450 - i * 10), 'low');
-  for (const d of [400, 380, 350, 320, 280, 240, 200]) {
-    for (let i = 0; i < 6; i++) await addFlight(pirjo, daysAgo(d), 'high', { is_approval: (i === 0 && d === 200) });
-  }
-  // Motor flights for ongoing MOVA
-  for (let i = 0; i < 5; i++) await addFlight(pirjo, daysAgo(50 - i * 8), 'motor');
-  await markTheories(pirjo, [...pp1Keys, ...pp2Keys, ...movaKeys.slice(0, 15)]);
-
-  // --- 5. Risto Rohkea — Täysin valmistunut PP2 (ei MOVA) ---------------------
-  const risto = await createStudent({
-    username: 'risto.rohkea',
-    email: 'risto@extreme.test',
-    name: 'Risto Rohkea',
-    status: 'completed',
-    course_started: daysAgo(400),
-    pp2_exam_passed: 1,
-    pp2_exam_date: daysAgo(60),
-    graduated_at: daysAgo(55),
-    student_notes: 'Valmistunut keväällä.'
-  });
-  for (let i = 0; i < 5; i++) await addFlight(risto, daysAgo(350 - i * 15), 'low');
-  for (const d of [300, 270, 240, 210, 180, 150, 100]) {
-    for (let i = 0; i < 6; i++) await addFlight(risto, daysAgo(d), 'high', { is_approval: (i === 0 && d === 100) });
-  }
-  await markTheories(risto, [...pp1Keys, ...pp2Keys]);
-
-  // ============================================================================
-  // SAMPLE LESSONS
-  // ============================================================================
-
-  // Pidetty oppitunti — pari viikkoa sitten
+  // Lessons — one held two weeks ago, one planned for next week
+  const pp1Keys = topicsByLevel.pp1 || [];
+  const pp2Keys = topicsByLevel.pp2 || [];
   if (pp2Keys.length >= 2) {
-    const l1 = await client.query(
+    const l = await client.query(
       "INSERT INTO lessons (date, instructor_id, notes, status) VALUES ($1, $2, 'Teoriapäivä: sääoppi ja ilmakehä.', 'held') RETURNING id",
       [daysAgo(14), chiefId]
     );
-    const l1Id = l1.rows[0].id;
-    await client.query('INSERT INTO lesson_students (lesson_id, student_id) VALUES ($1, $2)', [l1Id, satu]);
-    await client.query('INSERT INTO lesson_students (lesson_id, student_id) VALUES ($1, $2)', [l1Id, pirjo]);
+    const lid = l.rows[0].id;
+    await client.query('INSERT INTO lesson_students (lesson_id, student_id) VALUES ($1, $2)', [lid, studentIds.ready_to_graduate]);
+    await client.query('INSERT INTO lesson_students (lesson_id, student_id) VALUES ($1, $2)', [lid, studentIds.pp2_done_mova_in_progress]);
     for (const key of pp2Keys.slice(0, 2)) {
-      await client.query('INSERT INTO lesson_topics (lesson_id, topic_key) VALUES ($1, $2)', [l1Id, key]);
+      await client.query('INSERT INTO lesson_topics (lesson_id, topic_key) VALUES ($1, $2)', [lid, key]);
     }
   }
-
-  // Suunniteltu oppitunti — ensi viikolla
-  if (pp1Keys.length >= 2) {
+  if (pp1Keys.length >= 3) {
     const next = new Date();
     next.setDate(next.getDate() + 5);
     const nextDate = next.toISOString().split('T')[0];
-    const l2 = await client.query(
+    const l = await client.query(
       "INSERT INTO lessons (date, instructor_id, notes, status) VALUES ($1, $2, 'PP1-starttipäivä: tutustuminen, varusteet, maaharjoittelu.', 'planned') RETURNING id",
       [nextDate, chiefId]
     );
-    const l2Id = l2.rows[0].id;
-    await client.query('INSERT INTO lesson_students (lesson_id, student_id) VALUES ($1, $2)', [l2Id, antti]);
+    const lid = l.rows[0].id;
+    await client.query('INSERT INTO lesson_students (lesson_id, student_id) VALUES ($1, $2)', [lid, studentIds.beginner]);
     for (const key of pp1Keys.slice(0, 3)) {
-      await client.query('INSERT INTO lesson_topics (lesson_id, topic_key) VALUES ($1, $2)', [l2Id, key]);
+      await client.query('INSERT INTO lesson_topics (lesson_id, topic_key) VALUES ($1, $2)', [lid, key]);
     }
   }
 
-  console.log(`[demo-seed] Done: 1 club, 1 instructor, 5 students, 2 lessons, flights + theory`);
+  console.log(`[demo-seed] ${def.name}: 1 instructor, 5 students, 2 lessons, flights + theory`);
   return clubId;
+}
+
+// Canned flight patterns reused across archetypes. Keeps the student spec small.
+function expandFlightPattern(key) {
+  if (key === 'ready_to_graduate') {
+    const out = [];
+    for (let i = 0; i < 5; i++) out.push({ date: daysAgo(300 - i * 5), type: 'low' });
+    const highDays = [240, 220, 180, 150, 100, 60, 20];
+    let count = 0;
+    for (const d of highDays) {
+      const perDay = count < 35 ? 6 : 5;
+      for (let i = 0; i < perDay; i++) {
+        out.push({ date: daysAgo(d), type: 'high', is_approval: (i === 0 && d === 20) });
+      }
+      count += perDay;
+    }
+    return out;
+  }
+  if (key === 'pp2_done_plus_mova') {
+    const out = [];
+    for (let i = 0; i < 5; i++) out.push({ date: daysAgo(450 - i * 10), type: 'low' });
+    for (const d of [400, 380, 350, 320, 280, 240, 200]) {
+      for (let i = 0; i < 6; i++) {
+        out.push({ date: daysAgo(d), type: 'high', is_approval: (i === 0 && d === 200) });
+      }
+    }
+    for (let i = 0; i < 5; i++) out.push({ date: daysAgo(50 - i * 8), type: 'motor' });
+    return out;
+  }
+  if (key === 'graduated') {
+    const out = [];
+    for (let i = 0; i < 5; i++) out.push({ date: daysAgo(350 - i * 15), type: 'low' });
+    for (const d of [300, 270, 240, 210, 180, 150, 100]) {
+      for (let i = 0; i < 6; i++) {
+        out.push({ date: daysAgo(d), type: 'high', is_approval: (i === 0 && d === 100) });
+      }
+    }
+    return out;
+  }
+  return [];
+}
+
+async function seedDemo(client) {
+  // Load topic keys once; shared across all clubs.
+  const topics = await client.query(
+    "SELECT key, (SELECT level FROM theory_sections WHERE id = section_id) as level FROM theory_topics_def"
+  );
+  const topicsByLevel = {
+    pp1: topics.rows.filter(t => t.level === 'pp1').map(t => t.key),
+    pp2: topics.rows.filter(t => t.level === 'pp2').map(t => t.key),
+    mova: topics.rows.filter(t => t.level === 'mova').map(t => t.key),
+  };
+
+  for (const def of DEMO_CLUBS) {
+    await seedClub(client, def, topicsByLevel);
+  }
 }
 
 // Standalone runner
