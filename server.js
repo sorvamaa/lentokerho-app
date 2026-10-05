@@ -110,12 +110,17 @@ app.use((req, res, next) => {
 });
 // Cache-bust app.js and style.css on every deploy (server restart = new version)
 const ASSET_VERSION = Date.now().toString();
+const IS_DEMO = process.env.NODE_ENV === 'demo';
+const DEMO_BANNER = IS_DEMO
+  ? '<div style="background:#dc3545;color:#fff;padding:8px 16px;text-align:center;font-weight:500;font-size:14px;position:sticky;top:0;z-index:9999;">DEMO · tiedot nollautuvat ajoittain, älä syötä henkilötietoja</div>'
+  : '';
 function serveIndex(req, res) {
   fs.readFile(path.join(__dirname, 'public', 'index.html'), 'utf8', (err, html) => {
     if (err) return res.status(500).send('Error loading page');
     const bustered = html
       .replace('href="style.css"', `href="style.css?v=${ASSET_VERSION}"`)
-      .replace('src="app.js"', `src="app.js?v=${ASSET_VERSION}"`);
+      .replace('src="app.js"', `src="app.js?v=${ASSET_VERSION}"`)
+      .replace('<body>', `<body>${DEMO_BANNER}`);
     res.setHeader('Cache-Control', 'no-cache');
     res.send(bustered);
   });
@@ -3499,8 +3504,29 @@ initDb().then(async () => {
     console.error('Väiski pw fix failed:', e.message);
   }
 
+  // Demo instance: seed Extreme Team + sample data on first boot
+  if (IS_DEMO) {
+    try {
+      const { seedDemo } = require('./scripts/seed-demo');
+      const db = getDb();
+      const client = await db.getClient();
+      try {
+        await client.query('BEGIN');
+        await seedDemo(client);
+        await client.query('COMMIT');
+      } catch (e) {
+        await client.query('ROLLBACK');
+        console.error('[demo-seed] FAILED:', e.message);
+      } finally {
+        client.release();
+      }
+    } catch (e) {
+      console.error('[demo-seed] loader error:', e.message);
+    }
+  }
+
   app.listen(PORT, () => {
-    console.log(`PilottiPolku app server running on http://localhost:${PORT} (pilottipolku.fi)`);
+    console.log(`PilottiPolku app server running on http://localhost:${PORT} (pilottipolku.fi)${IS_DEMO ? ' [DEMO]' : ''}`);
   });
 }).catch(err => {
   console.error('Failed to initialize database:', err);
