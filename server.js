@@ -111,16 +111,22 @@ app.use((req, res, next) => {
 // Cache-bust app.js and style.css on every deploy (server restart = new version)
 const ASSET_VERSION = Date.now().toString();
 const IS_DEMO = process.env.NODE_ENV === 'demo';
-const DEMO_BANNER = IS_DEMO
-  ? '<div style="background:#dc3545;color:#fff;padding:8px 16px;text-align:center;font-weight:500;font-size:14px;position:sticky;top:0;z-index:9999;">DEMO · tiedot nollautuvat ajoittain, älä syötä henkilötietoja</div>'
-  : '';
+const IS_STAGING = process.env.NODE_ENV === 'staging';
+// Env banner: red for demo (don't put real data), yellow for staging (test env).
+// Production has no banner.
+let ENV_BANNER = '';
+if (IS_DEMO) {
+  ENV_BANNER = '<div style="background:#dc3545;color:#fff;padding:8px 16px;text-align:center;font-weight:500;font-size:14px;position:sticky;top:0;z-index:9999;">DEMO · tiedot nollautuvat ajoittain, älä syötä henkilötietoja</div>';
+} else if (IS_STAGING) {
+  ENV_BANNER = '<div style="background:#ffc107;color:#212529;padding:8px 16px;text-align:center;font-weight:500;font-size:14px;position:sticky;top:0;z-index:9999;">STAGING · testiympäristö uusille ominaisuuksille, tiedot eivät siirry tuotantoon</div>';
+}
 function serveIndex(req, res) {
   fs.readFile(path.join(__dirname, 'public', 'index.html'), 'utf8', (err, html) => {
     if (err) return res.status(500).send('Error loading page');
     const bustered = html
       .replace('href="style.css"', `href="style.css?v=${ASSET_VERSION}"`)
       .replace('src="app.js"', `src="app.js?v=${ASSET_VERSION}"`)
-      .replace('<body>', `<body>${DEMO_BANNER}`);
+      .replace('<body>', `<body>${ENV_BANNER}`);
     res.setHeader('Cache-Control', 'no-cache');
     res.send(bustered);
   });
@@ -3526,7 +3532,8 @@ initDb().then(async () => {
   }
 
   app.listen(PORT, () => {
-    console.log(`PilottiPolku app server running on http://localhost:${PORT} (pilottipolku.fi)${IS_DEMO ? ' [DEMO]' : ''}`);
+    const envTag = IS_DEMO ? ' [DEMO]' : IS_STAGING ? ' [STAGING]' : '';
+    console.log(`PilottiPolku app server running on http://localhost:${PORT} (pilottipolku.fi)${envTag}`);
   });
 }).catch(err => {
   console.error('Failed to initialize database:', err);
