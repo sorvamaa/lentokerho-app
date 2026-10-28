@@ -14,6 +14,12 @@ const { Pool } = require('pg');
 const { initDb, getDb } = require('./db');
 const { logAction } = require('./audit');
 const { sendPasswordReset } = require('./mailer');
+const {
+  SIL_2026_THEORY,
+  OLD_TO_NEW_TOPIC_MAP,
+  OLD_PP1_PP2_SECTION_KEYS,
+  MIGRATION_MARKER_TOPIC_KEY,
+} = require('./theory-sil-2026');
 
 // Sentry error tracking (optional — only if DSN is configured)
 let Sentry = null;
@@ -3093,103 +3099,11 @@ async function seedDatabase() {
 
     // ============================
     // THEORY SECTIONS & TOPICS (same for all clubs)
+    // Lähde: SIL varjoliidon koulutusohjelma 11.5.2026 (§ 4.3 ja 5.3)
+    // Määritelty theory-sil-2026.js:ssä, migraatio hoitaa olemassaolevat kannat.
     // ============================
-    const theorySections = [
-      { level:'pp1', key:'pp1_aero', title:'Aerodynamiikka', topics:[
-        {key:'pp1_aero_1',title:'Liitimen rakenne ja toiminta',dur:45,comment:'Koulutusopas luku 2.1'},
-        {key:'pp1_aero_2',title:'Nostovoima ja vastus',dur:45,comment:'Koulutusopas luku 2.2'},
-        {key:'pp1_aero_3',title:'Lentonopeudet ja suoritusarvot',dur:30,comment:'Koulutusopas luku 2.3'},
-        {key:'pp1_aero_4',title:'Sakkaus ja sen välttäminen',dur:45,comment:'Koulutusopas luku 2.4'},
-        {key:'pp1_aero_5',title:'Kääntyminen ja painonsiirto',dur:30,comment:'Koulutusopas luku 2.5'}
-      ]},
-      { level:'pp1', key:'pp1_meteo', title:'Mikrometeorologia', topics:[
-        {key:'pp1_meteo_1',title:'Tuulen perusteet',dur:45,comment:'Koulutusopas luku 3.1'},
-        {key:'pp1_meteo_2',title:'Terminen aktiivisuus – perusteet',dur:45,comment:'Koulutusopas luku 3.2'},
-        {key:'pp1_meteo_3',title:'Turbulenssi ja tuulengradientti',dur:30,comment:'Koulutusopas luku 3.3'},
-        {key:'pp1_meteo_4',title:'Sääennusteiden lukeminen',dur:30,comment:'Koulutusopas luku 3.4'},
-        {key:'pp1_meteo_5',title:'Paikallissääilmiöt',dur:30,comment:'Koulutusopas luku 3.5'}
-      ]},
-      { level:'pp1', key:'pp1_equip', title:'Välineet', topics:[
-        {key:'pp1_equip_1',title:'Liitimen osat ja materiaalit',dur:45,comment:'Koulutusopas luku 4.1'},
-        {key:'pp1_equip_2',title:'Valjaat ja varavarjo',dur:45,comment:'Koulutusopas luku 4.2'},
-        {key:'pp1_equip_3',title:'Kypärä ja suojavarusteet',dur:30,comment:'Koulutusopas luku 4.3'},
-        {key:'pp1_equip_4',title:'Välineiden tarkastus ja huolto',dur:45,comment:'Koulutusopas luku 4.4'}
-      ]},
-      { level:'pp1', key:'pp1_rules', title:'Säännöt ja ilmatila', topics:[
-        {key:'pp1_rules_1',title:'Ilmailulaki ja -määräykset',dur:45,comment:'Koulutusopas luku 5.1'},
-        {key:'pp1_rules_2',title:'Ilmatilarakenne',dur:45,comment:'Koulutusopas luku 5.2'},
-        {key:'pp1_rules_3',title:'NOTAM ja ilmailutiedotteet',dur:30,comment:'Koulutusopas luku 5.3'},
-        {key:'pp1_rules_4',title:'Väistämissäännöt',dur:30,comment:'Koulutusopas luku 5.4'},
-        {key:'pp1_rules_5',title:'SIL:n ohjeet ja koulutusvaatimukset',dur:45,comment:'Koulutusopas luku 5.5'}
-      ]},
-      { level:'pp1', key:'pp1_tech', title:'Lentotekniikka PP1', topics:[
-        {key:'pp1_tech_1',title:'Maassa tapahtuva harjoittelu',dur:45,comment:'Koulutusopas luku 6.1'},
-        {key:'pp1_tech_2',title:'Nousu ja laskeutuminen',dur:60,comment:'Koulutusopas luku 6.2'},
-        {key:'pp1_tech_3',title:'Suuntaohjaus ja nopeudensäätö',dur:45,comment:'Koulutusopas luku 6.3'},
-        {key:'pp1_tech_4',title:'Laskeutumiskuviot',dur:45,comment:'Koulutusopas luku 6.4'},
-        {key:'pp1_tech_5',title:'Top-landing harjoittelu',dur:30,comment:'Koulutusopas luku 6.5'}
-      ]},
-      { level:'pp1', key:'pp1_safety', title:'Turvallisuus PP1', topics:[
-        {key:'pp1_safety_1',title:'Riskienhallinta ja päätöksenteko',dur:45,comment:'Koulutusopas luku 7.1'},
-        {key:'pp1_safety_2',title:'Hätätilanteet – liitimen hallinta',dur:60,comment:'Koulutusopas luku 7.2'},
-        {key:'pp1_safety_3',title:'Varavarjon käyttö',dur:45,comment:'Koulutusopas luku 7.3'},
-        {key:'pp1_safety_4',title:'Ensiapu lentopaikalla',dur:45,comment:'Koulutusopas luku 7.4'},
-        {key:'pp1_safety_5',title:'Onnettomuusraportointi',dur:30,comment:'Koulutusopas luku 7.5'}
-      ]},
-      { level:'pp2', key:'pp2_aero_adv', title:'Aerodynamiikka (syventävä)', topics:[
-        {key:'pp2_aero_1',title:'Profiilipolaaridiagrammit',dur:45,comment:'Koulutusopas luku 8.1'},
-        {key:'pp2_aero_2',title:'Liitosuhde ja sink rate',dur:45,comment:'Koulutusopas luku 8.2'},
-        {key:'pp2_aero_3',title:'Wingover ja SAT – aerodynamiikka',dur:60,comment:'Koulutusopas luku 8.3'},
-        {key:'pp2_aero_4',title:'Speed system ja trim',dur:30,comment:'Koulutusopas luku 8.4'},
-        {key:'pp2_aero_5',title:'EN-luokitus ja turvallisuustestit',dur:30,comment:'Koulutusopas luku 8.5'},
-        {key:'pp2_aero_6',title:'Siipiprofiilien vertailu',dur:45,comment:'Koulutusopas luku 8.6'}
-      ]},
-      { level:'pp2', key:'pp2_meteo_adv', title:'Meteorologia (syventävä)', topics:[
-        {key:'pp2_meteo_1',title:'Synoptiikka ja sääkartat',dur:60,comment:'Koulutusopas luku 9.1'},
-        {key:'pp2_meteo_2',title:'Termiikka – kehittynyt teoria',dur:60,comment:'Koulutusopas luku 9.2'},
-        {key:'pp2_meteo_3',title:'Inversiot ja stabiilisuus',dur:45,comment:'Koulutusopas luku 9.3'},
-        {key:'pp2_meteo_4',title:'Vuoristoaallot ja roottori',dur:45,comment:'Koulutusopas luku 9.4'},
-        {key:'pp2_meteo_5',title:'Ukkosrintamat ja vaaralliset säätilat',dur:45,comment:'Koulutusopas luku 9.5'},
-        {key:'pp2_meteo_6',title:'Lentosään arviointi ja Go/No-Go',dur:30,comment:'Koulutusopas luku 9.6'}
-      ]},
-      { level:'pp2', key:'pp2_nav', title:'Navigointi', topics:[
-        {key:'pp2_nav_1',title:'Kartat ja koordinaatistot',dur:45,comment:'Koulutusopas luku 10.1'},
-        {key:'pp2_nav_2',title:'GPS-navigointi ilmassa',dur:45,comment:'Koulutusopas luku 10.2'},
-        {key:'pp2_nav_3',title:'Reittisuunnittelu – XC',dur:60,comment:'Koulutusopas luku 10.3'},
-        {key:'pp2_nav_4',title:'Ilmatilarajat ja karttapalvelut',dur:30,comment:'Koulutusopas luku 10.4'},
-        {key:'pp2_nav_5',title:'Vario ja flight computer',dur:45,comment:'Koulutusopas luku 10.5'}
-      ]},
-      { level:'pp2', key:'pp2_tech_adv', title:'Lentotekniikka PP2', topics:[
-        {key:'pp2_tech_1',title:'Termiikkiin keskittyminen',dur:60,comment:'Koulutusopas luku 11.1'},
-        {key:'pp2_tech_2',title:'Dynaamiset käännökset',dur:45,comment:'Koulutusopas luku 11.2'},
-        {key:'pp2_tech_3',title:'Big ears ja B-stall',dur:45,comment:'Koulutusopas luku 11.3'},
-        {key:'pp2_tech_4',title:'Spiral dive ja exit',dur:60,comment:'Koulutusopas luku 11.4'},
-        {key:'pp2_tech_5',title:'Laskeutuminen ahtaisiin paikkoihin',dur:45,comment:'Koulutusopas luku 11.5'},
-        {key:'pp2_tech_6',title:'Tuulilaskennat ja finaalivalinta',dur:45,comment:'Koulutusopas luku 11.6'}
-      ]},
-      { level:'pp2', key:'pp2_xc', title:'Matkalento (XC)', topics:[
-        {key:'pp2_xc_1',title:'XC-lennon suunnittelu',dur:60,comment:'Koulutusopas luku 12.1'},
-        {key:'pp2_xc_2',title:'Termiikkistrategia',dur:60,comment:'Koulutusopas luku 12.2'},
-        {key:'pp2_xc_3',title:'Siirtymälennot ja liito-optimointi',dur:45,comment:'Koulutusopas luku 12.3'},
-        {key:'pp2_xc_4',title:'XC-kilpailut ja FAI-säännöt',dur:45,comment:'Koulutusopas luku 12.4'},
-        {key:'pp2_xc_5',title:'Lentopäiväkirja ja dokumentointi',dur:30,comment:'Koulutusopas luku 12.5'}
-      ]},
-      { level:'pp2', key:'pp2_safety_adv', title:'Turvallisuus PP2', topics:[
-        {key:'pp2_safety_1',title:'SIV-kurssin teoria',dur:60,comment:'Koulutusopas luku 13.1'},
-        {key:'pp2_safety_2',title:'Kasaantuminen ja cravat',dur:45,comment:'Koulutusopas luku 13.2'},
-        {key:'pp2_safety_3',title:'Autorotaatio ja full stall',dur:45,comment:'Koulutusopas luku 13.3'},
-        {key:'pp2_safety_4',title:'Läheltä piti -raportointi',dur:30,comment:'Koulutusopas luku 13.4'},
-        {key:'pp2_safety_5',title:'Henkinen valmentautuminen',dur:45,comment:'Koulutusopas luku 13.5'}
-      ]},
-      { level:'pp2', key:'pp2_human', title:'Inhimilliset tekijät', topics:[
-        {key:'pp2_human_1',title:'Ihmisen suorituskyky ja rajoitukset',dur:45,comment:'Koulutusopas luku 14.1'},
-        {key:'pp2_human_2',title:'Päätöksenteko lennolla (ADM)',dur:45,comment:'Koulutusopas luku 14.2'},
-        {key:'pp2_human_3',title:'Stressinhallinta',dur:30,comment:'Koulutusopas luku 14.3'},
-        {key:'pp2_human_4',title:'Fyysinen kunto ja lentäminen',dur:30,comment:'Koulutusopas luku 14.4'},
-        {key:'pp2_human_5',title:'Hypoksia ja kylmyys',dur:45,comment:'Koulutusopas luku 14.5'},
-        {key:'pp2_human_6',title:'Ryhmädynamiikka lentopaikalla',dur:30,comment:'Koulutusopas luku 14.6'}
-      ]}
-    ];
+    const theorySections = SIL_2026_THEORY;
+    const SIL_COMMENT = 'SIL varjoliidon koulutusohjelma 11.5.2026';
 
     let sortOrder = 0;
     for (const sec of theorySections) {
@@ -3199,7 +3113,7 @@ async function seedDatabase() {
       let topicSort = 0;
       for (const t of sec.topics) {
         await db.prepare('INSERT INTO theory_topics_def (section_id,key,title,duration_minutes,comment,sort_order) VALUES (?,?,?,?,?,?)')
-          .run(sectionId, t.key, t.title, t.dur, t.comment, topicSort++);
+          .run(sectionId, t.key, t.title, t.dur, t.comment || SIL_COMMENT, topicSort++);
       }
     }
 
@@ -3508,6 +3422,112 @@ initDb().then(async () => {
     }
   } catch(e) {
     console.error('Väiski pw fix failed:', e.message);
+  }
+
+  // Migrate theory structure to SIL 11.5.2026 koulutusohjelma, if not yet done
+  try {
+    const db = getDb();
+    const marker = await db.prepare('SELECT 1 as present FROM theory_topics_def WHERE key = ? LIMIT 1')
+      .get(MIGRATION_MARKER_TOPIC_KEY);
+    if (marker && marker.present) {
+      // Already migrated — nothing to do
+    } else {
+      console.log('[sil-2026] Migrating theory structure to SIL 11.5.2026...');
+      const client = await db.getClient();
+      try {
+        await client.query('BEGIN');
+
+        // 1. Remap theory_completions: old_key → new_key, drop unmappable
+        //    (unique constraint student_id + topic_key: if conflict, keep existing new row)
+        for (const [oldKey, newKey] of Object.entries(OLD_TO_NEW_TOPIC_MAP)) {
+          if (newKey) {
+            // Avoid duplicate conflicts: only update if new key not already present for same student
+            await client.query(
+              `UPDATE theory_completions tc1
+               SET topic_key = $2
+               WHERE tc1.topic_key = $1
+                 AND NOT EXISTS (
+                   SELECT 1 FROM theory_completions tc2
+                   WHERE tc2.student_id = tc1.student_id AND tc2.topic_key = $2
+                 )`,
+              [oldKey, newKey]
+            );
+          }
+          // Any old key still present (unmapped OR mapping conflicted) gets dropped
+          await client.query('DELETE FROM theory_completions WHERE topic_key = $1', [oldKey]);
+        }
+
+        // 2. Same for lesson_topics
+        for (const [oldKey, newKey] of Object.entries(OLD_TO_NEW_TOPIC_MAP)) {
+          if (newKey) {
+            await client.query(
+              `UPDATE lesson_topics lt1
+               SET topic_key = $2
+               WHERE lt1.topic_key = $1
+                 AND NOT EXISTS (
+                   SELECT 1 FROM lesson_topics lt2
+                   WHERE lt2.lesson_id = lt1.lesson_id AND lt2.topic_key = $2
+                 )`,
+              [oldKey, newKey]
+            );
+          }
+          await client.query('DELETE FROM lesson_topics WHERE topic_key = $1', [oldKey]);
+        }
+
+        // 3. Delete old PP1/PP2 theory_sections (CASCADE drops theory_topics_def rows)
+        for (const sectionKey of OLD_PP1_PP2_SECTION_KEYS) {
+          await client.query('DELETE FROM theory_sections WHERE key = $1 AND level IN ($2, $3)',
+            [sectionKey, 'pp1', 'pp2']);
+        }
+
+        // 4. Insert new SIL-aligned sections + topics
+        //    Sort orders continue from existing max to avoid stepping on MOVA sections
+        const maxOrderRow = await client.query(
+          'SELECT COALESCE(MAX(sort_order), -1) AS mx FROM theory_sections'
+        );
+        let secOrder = parseInt(maxOrderRow.rows[0].mx) + 1;
+        for (const sec of SIL_2026_THEORY) {
+          const secRes = await client.query(
+            'INSERT INTO theory_sections (level, key, title, sort_order) VALUES ($1,$2,$3,$4) RETURNING id',
+            [sec.level, sec.key, sec.title, secOrder++]
+          );
+          const sectionId = secRes.rows[0].id;
+          let topicOrder = 0;
+          for (const t of sec.topics) {
+            await client.query(
+              'INSERT INTO theory_topics_def (section_id, key, title, duration_minutes, comment, sort_order) VALUES ($1,$2,$3,$4,$5,$6)',
+              [sectionId, t.key, t.title, t.dur, 'SIL varjoliidon koulutusohjelma 11.5.2026', topicOrder++]
+            );
+          }
+        }
+
+        // 5. Re-order PP1 sections first, then PP2, then MOVA (for stable UI order)
+        //    Done by overwriting sort_order based on level + key alphabetical
+        await client.query(`
+          WITH ordered AS (
+            SELECT id,
+              ROW_NUMBER() OVER (
+                ORDER BY
+                  CASE level WHEN 'pp1' THEN 1 WHEN 'pp2' THEN 2 WHEN 'mova' THEN 3 ELSE 9 END,
+                  sort_order
+              ) - 1 AS new_order
+            FROM theory_sections
+          )
+          UPDATE theory_sections SET sort_order = ordered.new_order
+          FROM ordered WHERE theory_sections.id = ordered.id
+        `);
+
+        await client.query('COMMIT');
+        console.log('[sil-2026] Theory migration complete');
+      } catch (e) {
+        await client.query('ROLLBACK');
+        throw e;
+      } finally {
+        client.release();
+      }
+    }
+  } catch (e) {
+    console.error('[sil-2026] Migration failed:', e.message);
   }
 
   // Demo instance: seed Extreme Team + sample data on first boot
